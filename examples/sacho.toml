@@ -28,9 +28,3 @@ interval_seconds = 21600
 # username = "status@example.com"
 # password_env = "SACHO_SMTP_PASSWORD"
 # security = "starttls" # tls for port 465, plain only for loopback test relays
-
-# Optional local subscription usage adapters (no inference requests).
-# [usage]
-# enabled = true
-# home = "/home/your-user"
-# codex_binary = "/home/your-user/.local/bin/codex"

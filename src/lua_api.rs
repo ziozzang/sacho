@@ -11,15 +11,76 @@ fn install_inner(lua: &Lua) -> mlua::Result<()> {
     let host = lua.create_table()?;
     host.set("api_version", 1)?;
     host.set(
-        "usage",
-        lua.create_function(|lua, provider: String| {
-            let home = std::env::var("SACHO_PROBE_USAGE_HOME")
-                .map_err(|_| err("local usage adapters disabled; configure [usage]"))?;
-            let binary =
-                std::env::var("SACHO_PROBE_CODEX_BINARY").unwrap_or_else(|_| "codex".into());
-            let value = crate::quota::read(&provider, std::path::Path::new(&home), &binary)
-                .map_err(|e| err(&e.to_string()))?;
-            lua.to_value(&value)
+        "exec",
+        lua.create_function(|lua, arguments: mlua::Table| {
+            use std::process::{Command, Stdio};
+            let arguments = arguments
+                .sequence_values::<String>()
+                .collect::<mlua::Result<Vec<_>>>()?;
+            if arguments.is_empty()
+                || arguments.len() > 64
+                || arguments.iter().map(String::len).sum::<usize>() > 16384
+            {
+                return Err(err("exec expects 1–64 command arguments, up to 16 KiB"));
+            }
+            let mut child = Command::new(&arguments[0])
+                .args(&arguments[1..])
+                .env_remove("SACHO_PROBE_ALLOWED_ENV")
+                .env_remove("SACHO_PROBE_TIMEOUT")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|_| err("external command could not start"))?;
+            fn capture(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
+                let mut result = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                loop {
+                    let count = reader.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    let keep = count.min(65536_usize.saturating_sub(result.len()));
+                    result.extend_from_slice(&buffer[..keep]);
+                }
+                Ok(result)
+            }
+            let stdout = child.stdout.take().unwrap();
+            let stderr = child.stderr.take().unwrap();
+            let output = std::thread::spawn(move || capture(stdout));
+            let errors = std::thread::spawn(move || capture(stderr));
+            let timeout = std::env::var("SACHO_PROBE_TIMEOUT")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(10)
+                .clamp(1, 300);
+            let started = Instant::now();
+            let status = loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break status,
+                    Ok(None) if started.elapsed() < Duration::from_secs(timeout) => {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(err("external command failed or timed out"));
+                    }
+                }
+            };
+            let stdout = output
+                .join()
+                .map_err(|_| err("external stdout capture failed"))?
+                .map_err(|_| err("external stdout read failed"))?;
+            let stderr = errors
+                .join()
+                .map_err(|_| err("external stderr capture failed"))?
+                .map_err(|_| err("external stderr read failed"))?;
+            let result = lua.create_table()?;
+            result.set("exit_code", status.code().unwrap_or(-1))?;
+            result.set("stdout", lua.create_string(&stdout)?)?;
+            result.set("stderr", lua.create_string(&stderr)?)?;
+            Ok(result)
         })?,
     )?;
     let allowed: Vec<String> = serde_json::from_str(

@@ -29,8 +29,7 @@ Host calls can access the operator's network; scripts are written by trusted adm
 | `sacho.json_decode(text)` | JSON to Lua values/tables. |
 | `sacho.json_encode(value)` | Lua value to a JSON string. Use this for conditions/display. |
 | `sacho.env(name)` | Read only an environment name explicitly listed in `probe_env`. |
-| `sacho.usage("codex")` | Opt-in local Codex app-server subscription allowance. |
-| `sacho.usage("claude")` | Opt-in local Claude subscription OAuth allowance. |
+| `sacho.exec({program, arg1, ...})` | Run an external command without shell expansion. Returns `{exit_code, stdout, stderr}`; captures at most 64 KiB per stream and shares the scenario timeout/process group. |
 
 Returning `true`, a number, string or nil exits successfully; `false`, an assertion
 failure or runtime error fails. Returned numbers are printed as numeric JSON;
@@ -65,11 +64,11 @@ this latest value. To gate health independently, set `json_pointer="/tps"`,
 can be displayed directly with an empty display pointer. Text is bounded to 160
 non-control characters and escaped by the frontend; objects/arrays are not public.
 
-Local subscription adapters require `[usage].enabled=true`, an absolute `home`
-and a `codex_binary` path. They report window-qualified values, never assume a
-missing window is available, and never run inference or alter login credentials.
-The Claude OAuth API is undocumented; failures and expired sessions require the
-operator to reauthenticate. Use 300 seconds or slower and an adequate timeout
-(e.g. 30s) for these scenarios.
+Provider-specific API and credential handling belongs in external scenarios, never
+in the Sacho engine. `exec` permits trusted administrators to invoke external
+programs with the service user's filesystem permissions, just like shell/Python
+checks. Commands receive only the allowlisted probe environment and fixed
+PATH/LANG; stdin is closed. Assert `exit_code == 0` before decoding stdout.
+Missing data must be treated as unavailable instead of a successful full allowance.
 
 See [examples/lua](../examples/lua) for Hangang, Dorang, TPS and quota scenarios.

@@ -68,25 +68,15 @@ return sacho.json_encode({value = "live + ready"})
 표시 단위 ` TPS`를 사용합니다. 표시만 하려면 숫자 임계값을 비워둡니다.
 숫자 조건 JSON 포인터와 표시 JSON 포인터는 각각 설정할 수 있습니다.
 
-[`examples/lua`](examples/lua)에 실제 hangang → dorang 검사, dorang 생존·준비
+[`examples/lua`](examples/lua)에 hangang → dorang 검사, dorang 생존·준비
 검사, TPS, 구독 잔여량 예제가 있습니다. 서버 주소는 환경에 맞게 바꾸세요.
 [`tools/import_checks.py`](tools/import_checks.py)로 예제를 등록할 수도 있습니다.
 
-Codex/Claude 사용량 조회는 `[usage]`에서 명시적으로 활성화합니다.
-로그인된 사용자 홈과 Codex 실행 파일을 지정한 뒤 다음을 사용하세요.
-
-```lua
-return sacho.json_encode(sacho.usage("codex")) -- 또는 "claude"
-```
-
-`/display`는 시간 창별 잔여 비율, `/remaining_percent`는 보고된 창 중 가장
-낮은 잔여 비율입니다. 고정된 잔여 토큰 수가 아닌 **구독 사용 한도**입니다.
-300초 이상 간격을 권장합니다. 없는 값은 100%로 추정하지 않습니다.
-Codex는 공식 app-server RPC를 사용하고, Claude는 dorang과 같은 OAuth 조회
-방식을 사용합니다. Claude 엔드포인트는 비공개 규격이며 변경·요청 제한이 있을 수
-있습니다. 기존 인증 정보를 읽기만 하고 갱신하거나 덮어쓰지 않습니다.
-Codex 래퍼의 로그인 탐색에는 `probe_env = ["HOME"]` 같은 명시적 환경 전달이
-필요할 수 있습니다.
+Sacho 본체에는 특정 서비스의 사용량 API나 로그인 파일을 읽는 코드가 없습니다.
+서비스별 로직은 외부 Lua/Python/쉘 시나리오에 두세요. Lua에서는
+`sacho.exec({"python3", "/opt/checks/health.py"})`로 외부 프로그램을 실행하고
+종료 코드와 JSON 표준출력을 검사할 수 있습니다. 환경변수 허용 목록,
+출력 크기 제한, 검사 시간 제한과 프로세스 그룹 정리가 동일하게 적용됩니다.
 
 ## 알림·인증·업데이트
 

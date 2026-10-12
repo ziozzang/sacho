@@ -9,4 +9,3 @@ pub mod update;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const TARGET: &str = env!("SACHO_TARGET");
 pub mod lua_api;
-pub mod quota;

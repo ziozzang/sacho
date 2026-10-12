@@ -16,23 +16,6 @@ pub struct Config {
     pub retention_days: u32,
     pub max_concurrent_checks: usize,
     pub probe_env: Vec<String>,
-    pub usage: Usage,
-}
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Usage {
-    pub enabled: bool,
-    pub home: String,
-    pub codex_binary: String,
-}
-impl Default for Usage {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            home: String::new(),
-            codex_binary: "codex".into(),
-        }
-    }
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -104,7 +87,6 @@ impl Default for Config {
             retention_days: 100,
             max_concurrent_checks: 16,
             probe_env: vec![],
-            usage: Usage::default(),
         }
     }
 }
@@ -115,12 +97,6 @@ impl Config {
         Ok(cfg)
     }
     pub fn validate(&self) -> Result<()> {
-        if self.usage.enabled {
-            ensure!(
-                std::path::Path::new(&self.usage.home).is_absolute(),
-                "usage.home must be an absolute path"
-            );
-        }
         let bind: SocketAddr = self.bind.parse()?;
         ensure!(
             self.auth.mode == "no-auth" || self.auth.mode == "auth-proxy",

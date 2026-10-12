@@ -63,6 +63,18 @@ def main():
    spec={'name':'Lua scenario','kind':'lua','target':lua,'interval_seconds':5,'timeout_seconds':3,'publish_value':True,'display_pointer':'/version','display_label':'Version'}
    tested=request('/api/admin/test','POST',spec);assert tested['status']=='operational',tested;assert tested['display_value']=='v-test'
    assert request('/api/incidents')==[]
+   # External programs own application-specific logic; Lua only executes argv.
+   external=dict(spec,name='External scenario')
+   program='import json,sys,os;assert sys.stdin.read()=="";assert "HOME" not in os.environ;assert "SACHO_PROBE_ALLOWED_ENV" not in os.environ;print(json.dumps({"version":sys.argv[1]}))'
+   external['target']=f'local r=sacho.exec({{"python3","-c",{json.dumps(program)},"literal $(echo unsafe)"}});assert(r.exit_code==0);assert(sacho.usage==nil);return r.stdout'
+   result=request('/api/admin/test','POST',external);assert result['status']=='operational',result;assert result['display_value']=='literal $(echo unsafe)',result
+   program='import sys;sys.stdout.write("a"*200000);sys.stderr.write("b"*200000)'
+   external['target']=f'local r=sacho.exec({{"python3","-c",{json.dumps(program)}}});assert(r.exit_code==0);assert(#r.stdout==65536);assert(#r.stderr==65536);return "bounded"'
+   result=request('/api/admin/test','POST',external);assert result['status']=='operational',result
+   external['target']='local r=sacho.exec({"python3","-c","import sys;sys.exit(7)"});assert(r.exit_code==7);return "expected failure"'
+   result=request('/api/admin/test','POST',external);assert result['status']=='operational',result
+   external.update(timeout_seconds=1,target='sacho.exec({"python3","-c","import time;time.sleep(10)"})')
+   started=time.monotonic();result=request('/api/admin/test','POST',external);assert result['status']=='outage',result;assert time.monotonic()-started<4
    request('/api/admin/webhooks','POST',{'name':'test','url':upstream+'/hook'})
    request('/api/subscribe','POST',{'email':'reader@example.com'})
    wait_for(lambda:len(SMTP.messages)>=1)

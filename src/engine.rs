@@ -69,10 +69,6 @@ async fn command(item: &Item, cfg: &Config) -> Result<(String, i32)> {
             cmd.env(name, value);
         }
     }
-    if cfg.usage.enabled {
-        cmd.env("SACHO_PROBE_USAGE_HOME", &cfg.usage.home)
-            .env("SACHO_PROBE_CODEX_BINARY", &cfg.usage.codex_binary);
-    }
     cmd.env(
         "SACHO_PROBE_ALLOWED_ENV",
         serde_json::to_string(&cfg.probe_env)?,

@@ -81,26 +81,14 @@ requests require `X-Sacho-Request: 1` and, when present, an Origin equal to
 `public_url`. Examples and a repeatable importer are in [`examples`](examples)
 and [`tools/import_checks.py`](tools/import_checks.py).
 
-### Subscription usage
+### External scenarios
 
-Optional local Codex/Claude adapters use existing sign-ins without inference
-requests. Enable `[usage]` in the external configuration, provide the actual user
-home and installed Codex executable, and use:
-
-```lua
-return sacho.json_encode(sacho.usage("codex")) -- or "claude"
-```
-
-Display `/display` for window-qualified remaining percentages, or use
-`/remaining_percent` for the minimum remaining allowance across reported windows.
-This measures subscription **usage allowances**, not a fixed remaining token count.
-Poll every 300 seconds or slower. Missing/null windows are unavailable, never 100%.
-Codex uses the documented [`account/rateLimits/read`](https://learn.chatgpt.com/docs/app-server)
-RPC. Claude uses the subscription OAuth endpoint already implemented in Dorang;
-that endpoint is undocumented and can change or rate-limit requests. The adapter
-reads existing credentials, does not refresh or rewrite them, and fails if expired.
-These adapters are disabled by default. Explicit `probe_env` entries, such as
-`HOME`, may be needed for an installed Codex wrapper to find its existing sign-in.
+Sacho contains no provider-specific usage clients or credential readers. Keep that
+logic in your own external Lua/Python/shell scenarios. A Lua scenario can invoke
+an external program with `sacho.exec({"python3", "/opt/checks/health.py"})`, inspect
+its exit code, and decode its JSON stdout. Commands inherit only the probe
+allowlisted environment, have bounded captured output, and share the scenario
+process group and timeout. See [external-command.lua](examples/lua/external-command.lua).
 
 ## Notifications
 

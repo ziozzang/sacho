@@ -16,7 +16,7 @@ const policyMembers = [
   ['json_decode', '(text)', 'Decode JSON into Lua tables.'],
   ['json_encode', '(value)', 'Encode a Lua value as JSON for numeric conditions or display.'],
   ['env', '(allowed_name)', 'Read an explicitly allowed probe environment variable.'],
-  ['usage', '(codex_or_claude)', 'Read configured local subscription usage; returns display, remaining_percent and windows.'],
+  ['exec', '(argv)', 'Run an external command with bounded output; returns exit_code, stdout and stderr.'],
   ['api_version', 'number', 'Current Sacho Lua API version (1).'],
 ];
 const bodyMembers = policyMembers;
