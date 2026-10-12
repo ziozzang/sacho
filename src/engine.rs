@@ -64,14 +64,14 @@ async fn command(item: &Item, cfg: &Config) -> Result<(String, i32)> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    for name in &cfg.probe_env {
+    for name in &cfg.probe_names() {
         if let Ok(value) = cfg.environment(name) {
             cmd.env(name, value);
         }
     }
     cmd.env(
         "SACHO_PROBE_ALLOWED_ENV",
-        serde_json::to_string(&cfg.probe_env)?,
+        serde_json::to_string(&cfg.probe_names())?,
     )
     .env("SACHO_PROBE_TIMEOUT", item.spec.timeout_seconds.to_string());
     #[cfg(unix)]
@@ -148,15 +148,23 @@ pub async fn probe(item: &Item) -> Observation {
 pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
     let start = Instant::now();
     let result = tokio::time::timeout(Duration::from_secs(item.spec.timeout_seconds), async {
-        let (output, code) = if item.spec.kind == "http" {
+        let (output, code) = if matches!(item.spec.kind.as_str(), "http" | "prometheus") {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(item.spec.timeout_seconds))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?;
-            let mut request = client.get(&item.spec.target);
+            let url = if item.spec.kind == "prometheus" {
+                format!("{}/api/v1/query", item.spec.target.trim_end_matches('/'))
+            } else {
+                item.spec.target.clone()
+            };
+            let mut request = client.get(url);
+            if item.spec.kind == "prometheus" {
+                request = request.query(&[("query", &item.spec.prometheus_query)]);
+            }
             for (header, env) in &item.spec.headers_env {
                 ensure!(
-                    cfg.probe_env.contains(env),
+                    cfg.probe_names().contains(env),
                     "HTTP credential environment name is not allowed"
                 );
                 request = request.header(
@@ -174,11 +182,24 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
                 );
                 body.extend_from_slice(&chunk);
             }
-            (String::from_utf8_lossy(&body).into_owned(), status as i32)
+            let output = if item.spec.kind == "prometheus" && status == 200 {
+                crate::sources::prometheus(&body)?
+            } else {
+                String::from_utf8_lossy(&body).into_owned()
+            };
+            (output, status as i32)
+        } else if item.spec.kind == "tcp" {
+            (crate::sources::tcp(&item.spec.target).await?, 0)
+        } else if item.spec.kind == "dns" {
+            (crate::sources::dns(&item.spec).await?, 0)
+        } else if item.spec.kind == "push" {
+            anyhow::bail!(
+                "Push checks accept authenticated reports; draft execution is unavailable"
+            )
         } else {
             command(item, cfg).await?
         };
-        let expected = if item.spec.kind == "http" {
+        let expected = if matches!(item.spec.kind.as_str(), "http" | "prometheus") {
             item.spec.expected_status as i32
         } else {
             item.spec.expected_exit
@@ -188,6 +209,12 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
         } else {
             format!("expected result {expected}, received {code}")
         };
+        if detail.is_empty()
+            && item.spec.kind == "dns"
+            && serde_json::from_str::<serde_json::Value>(&output)?["healthy"] == 0
+        {
+            detail = "DNS answer set does not match expected records".into();
+        }
         if detail.is_empty()
             && !item.spec.contains.is_empty()
             && !output.contains(&item.spec.contains)
@@ -273,7 +300,7 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
     }
 }
 fn safe_error(error: &anyhow::Error, item: &Item) -> String {
-    if item.spec.kind == "http" {
+    if matches!(item.spec.kind.as_str(), "http" | "prometheus") {
         "HTTP request or condition failed; verify connectivity, TLS and output format".into()
     } else {
         format!("{error:#}").chars().take(2000).collect()
@@ -303,7 +330,11 @@ pub async fn scheduler(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>
                 let all={db::items(&db.lock().unwrap())};
                 match all {
                     Ok(items)=>for item in items {
-                        if !item.spec.worker.is_empty() || !item.spec.enabled || running.contains(&item.id) || item.last_check.is_some_and(|last|db::now()-last<item.spec.interval_seconds as i64) { continue; }
+                        if !item.spec.worker.is_empty() || !item.spec.enabled || running.contains(&item.id) || !crate::scheduling::due(&db.lock().unwrap(),&item,db::now()).unwrap_or(false) { continue; }
+                        if item.spec.kind=="push" {
+                            if let Err(error)=crate::push::expire(&mut db.lock().unwrap(),&item) {tracing::error!(%error,"expire push report");}
+                            continue;
+                        }
                         let Ok(permit)=semaphore.clone().try_acquire_owned() else {break;};
                         running.insert(item.id.clone());
                         let db=db.clone(); let cfg=cfg.clone(); let done=done_tx.clone(); let mut cancel=stop.clone();

@@ -106,3 +106,176 @@ PostgreSQL은 외부 `psql`이 필요하고, 나머지 Lua HTTP 조회는 내장
 담당자·인지·에스컬레이션·온콜·조치·인시던트 관리 기능은 만들지 않습니다.
 그 역할은 외부 웹훅 시스템에 맡깁니다. 전송 직전에 상태를 확인하지만 이미 진행
 중인 외부 전송을 회수할 수는 없으며 전달 보장은 at least once입니다.
+
+## 실행 예제와 관리자 환경변수·비밀값
+
+**검사 예제**에 Shell script, Python code, Lua script 시작 예제, ICMP ping,
+네이티브 Prometheus/DNS/TCP 및 외부 보고가 있습니다. 선택하면 초안만 열리고,
+**초안 테스트**는 검사만 실행하며 **저장**해야 스케줄이 활성화됩니다.
+체크아웃 없이 `sacho example shell`, `python`, `lua`, `ping`으로 예제를 꺼낼 수 있습니다.
+Python은 실행 노드의 `python3`, Shell은 `/bin/sh`, ping은 ICMP 권한이 있는 `ping`이
+필요합니다. Lua는 내장됩니다. ICMP 차단과 HTTP 서비스 장애는 별개입니다.
+
+관리자의 **환경변수·비밀값**은 변수 이름, 주입 여부, 암호화 값 저장 여부와 출처만
+보여주며 저장된 값은 다시 반환하지 않습니다. `sacho secrets init --vault
+/private/inputs.enc --key-file /private/unlock.key`로 초기화하고 `[secrets]`를 설정해
+한 번 재시작하면 관리자 편집이 활성화됩니다. 암호화 파일과 잠금 해제 키는 별도로
+백업하세요. 값 등록·교체·주입 해제·삭제는 다음 검사부터 재시작 없이 반영됩니다.
+이미 실행 중인 프로세스가 받은 입력은 바뀌지 않습니다.
+
+관리자에서 새 이름의 주입을 허용하면 허용 이름은 SQLite에, 값은 암호화 vault에
+저장됩니다. 서비스 환경변수가 vault보다 우선합니다. 서비스가 상속한 임의 환경변수를
+관리자에서 바로 공개할 수는 없으며, 환경변수 입력은 서버 `probe_env`에 명시해야 합니다.
+PATH, LANG, SACHO_PROBE_*와 설정된 에이전트 인증·SMTP 비밀번호는 관리 대상에서
+제외합니다. 서버 설정에 있는 허용 이름은 설정에서 변경해야 합니다. vault 값을
+삭제해도 같은 이름의 시스템 환경변수가 있다면 그 값은 남습니다.
+원격 에이전트는 자체 허용 목록과 vault를 사용하고 메인 서버가 비밀값을 배포하지 않습니다.
+
+Shell은 `"$API_TOKEN"`, Python은 `os.environ["API_TOKEN"]`, Lua는
+`sacho.env("API_TOKEN")`으로 읽습니다. 스크립트·URL·동작 JSON에 비밀값을 직접 적거나
+출력하지 마세요. 안전한 메타데이터 내보내기는 스크립트, 동작, PromQL, DNS 설정,
+비밀값을 제외합니다. 전체 DB 백업은 비공개 운영 데이터입니다.
+
+## 네이티브 검사
+
+- **Prometheus**: `kind="prometheus"`, `target`은 서버 기본 URL, `prometheus_query`는
+  PromQL입니다. `/api/v1/query` 순간 쿼리로 단일 scalar 또는 단일 vector 시리즈를
+  받아 `{"value":42.0,"sample_at":...}`로 정규화합니다. `/value`를 최신 값·임계값·추세에
+  연결하세요. 여러 시리즈는 `sum(rate(http_requests_total[5m]))`처럼 집계합니다.
+  빈 결과·다중 시리즈·NaN/Inf는 실패입니다. 인증은 `headers_env`로 주입합니다.
+  기존 Prometheus를 조회하며 PromQL 엔진·스크레이퍼·TSDB 자체를 내장하지 않습니다.
+- **DNS**: `kind="dns"`, `target`은 도메인입니다. A/AAAA/CNAME/TXT/MX/NS/SOA/SRV/PTR/CAA를
+  지원하며 `dns_server`는 선택적인 IP 또는 IP:port입니다. IPv6 포트는 대괄호를 씁니다.
+  비워두면 시스템 DNS 서버를 쓰며 매 검사마다 새로 조회하고 hosts 파일·자체 캐시는
+  쓰지 않습니다. `dns_expected`는 순서와 무관한 기대 응답 집합이고 비우면 비어 있지 않은
+  응답을 허용합니다. DNS 표기 형식으로 도메인 끝의 점, MX/SRV 숫자 필드,
+  TXT의 따옴표도 포함해야 합니다. 불일치·NXDOMAIN·빈 응답·시간 초과는 실패입니다.
+  `/display`는 응답 문자열, `/count`는 개수입니다. DNSSEC 검증·전체 zone transfer는 아닙니다.
+- **TCP**: `kind="tcp"`, `target="example.com:443"` 또는 `[2001:db8::1]:443`입니다.
+  `/value`는 연결 시간(ms)이며 도메인을 쓰면 이름 해석 시간도 포함합니다. 연결 후 소켓을
+  닫으므로 응용 프로토콜·TLS 통신 검증에는 HTTP나 별도 Lua 검사를 쓰세요.
+
+업데이트한 원격 에이전트에서도 실행할 수 있고 네이티브 네트워크 검사에 스크립트 권한은
+필요 없습니다. PostgreSQL·Docker·시스템·장비별 검사는 신뢰하는 외부 스크립트로 확장합니다.
+SNMP v2c/v3는 아직 네이티브 검사가 아닙니다. 검증한 장비 수집기를 외부 스크립트로 연결하고
+인증 정보는 명시적으로 주입하세요. 검증되지 않은 프로토콜을 지원한다고 표시하지 않습니다.
+
+## 외부 보고·하트비트
+
+**Push report**(`kind="push"`, `target="push"`) 검사를 저장하고 `interval_seconds`를
+허용 보고 간격으로 설정한 뒤 **보고 토큰**을 발급합니다. 토큰은 한 번 보여주고 SHA-256
+해시만 저장합니다. 재발급하면 이전 토큰은 폐기되고, 별도로 폐기할 수도 있습니다.
+키는 검사 하나에만 연결되며 일시 중지·삭제한 검사는 보고를 거절합니다.
+
+```http
+POST /api/push/MONITOR_ID
+Authorization: Bearer REPORTING_TOKEN
+Content-Type: application/json
+
+{"status":"operational","data":{"value":123,"version":"1.2.3"}}
+```
+
+상태는 operational/degraded/outage이고 data는 기록할 JSON입니다. 수치 조건과 주의·장애
+규칙도 적용합니다. 공개할 값은 `/value`, `/version` 등으로 선택하고 원본은 비공개입니다.
+최대 64 KiB이며 서버 수신 시각으로 기록합니다. Push에서는 응답 시간을 측정하지 않아
+latency는 0입니다. 정상 응답은 `{"ok":true,"recorded_at":...}`입니다. 관리자 세션 없이
+보고 키로 인증하며 키를 URL이나 Git에 넣지 마세요.
+
+최초 보고에는 초기 대기와 한 보고 간격을 허용합니다. 보고가 없으면 간격마다 실패 관측을
+기록하고 연속 실패 조건을 적용합니다. 마지막 실측 값은 원래 시각과 함께 남으며 새 보고로
+복구할 수 있습니다. Push는 cron·원격 에이전트·초안 실행을 사용하지 않습니다.
+부트스트랩 키와 달리 보고 키는 폐기할 때까지 재사용합니다.
+
+## Cron과 표시 시간대
+
+`cron`을 비우면 기존 주기 검사입니다. `*/5 * * * *`처럼 5개 필드를 쓰고, 6개는 초,
+7개는 연도 필드를 추가합니다. `schedule_timezone`은 UTC·Asia/Seoul 같은 IANA 시간대이며
+서머타임 규칙을 적용합니다. `initial_delay_seconds`는 검사 생성 후 초기 대기입니다.
+검사 하나는 동시에 한 번 실행되고, 중단 중 놓친 스케줄은 한 번으로 합칩니다.
+**지금 실행**은 스케줄을 건너뛰지만 동작 후 대기는 지킵니다. 원격 검사는 메인 서버가
+실행 시각을 판단하고 기존 fenced lease로 전달합니다.
+
+헤더의 언어·표시 시간대는 드롭다운으로 선택하고 브라우저에 저장합니다. 표시 시간대와
+cron 실행 시간대는 별개입니다. 알림 유지보수의 datetime 입력은 브라우저 로컬 시간대로
+입력하며 절대 시각으로 저장합니다. API 시각은 UTC Unix 초입니다.
+
+## 검사별 성공·실패 동작
+
+**실패·복구**에서 **실패 시** 또는 **성공·복구 시**를 펼쳐 설정합니다. 모든 기존 검사와
+새 검사의 기본값은 동작 없음입니다. Shell/Python/내장 Lua 또는 HTTP(S) JSON POST를
+선택합니다. HTTP는 로컬 비공개 엔드포인트를 위해 허용합니다. 원격 관측에 붙인 동작도
+**메인 서버**에서 실행하고 메인 서버의 입력을 사용하며 에이전트 인증값을 가져오지 않습니다.
+초안 테스트에서는 동작을 실행하거나 큐에 넣지 않습니다.
+
+- 연속 검사 횟수와 검사 자체의 연속 실패·복구 조건 중 큰 값을 충족해야 실행합니다.
+- 전환 모드는 그 연속 횟수에 도달할 때 한 번 실행합니다. 최초 성공도 성공 동작을
+  실행할 수 있고, 편집하면 연속 횟수가 초기화됩니다.
+- 반복 모드는 조건이 유지되는 동안 쿨다운마다 실행하며 최소 쿨다운은 5초입니다.
+- 실행 전 지연 중 복구·일시 중지·삭제·설정 revision 변경으로 조건이 사라지면 취소합니다.
+- 쿨다운은 검사와 성공/실패 트리거별 새 동작 큐 등록 빈도를 제한합니다.
+- 최대 시도는 기본 1, 최대 5회입니다. 실패하면 재시도 간격 후 시도합니다.
+  HTTP는 Idempotency-Key, 스크립트는 이벤트 JSON의 delivery_id로 같은 동작을 식별합니다.
+- 실행 후 대기는 각 시도 후 다음 검사를 지연해 재시작·초기화를 기다립니다.
+  이미 실행 중인 검사는 이 대기로 취소되지 않습니다.
+- 각 시도의 타임아웃을 지정하며 시간 초과·종료 시 스크립트 자식도 종료합니다.
+
+큐와 시도 횟수는 SQLite에 저장합니다. 실행 전에 시도를 기록하므로 프로세스가 중단되면
+결과가 불확실할 수 있습니다. 기본 1회에서는 불확실한 동작을 재시도하지 않습니다.
+재시도를 켜면 중단 이후 중복 실행될 수 있으니 멱등하게 작성해야 합니다. 실행 중인 동작은
+편집으로 되돌릴 수 없습니다. 공통 알림 유지보수는 복구 동작을 중지하지 않습니다.
+동작을 끄거나 검사를 일시 중지하세요. 전달 로그에 실제 시도 횟수와 결과를 표시하며
+동작 출력은 공개 모니터링 값에 넣지 않습니다.
+
+스크립트에 `SACHO_EVENT_JSON`을 주입하며 event/item_id/name/status/previous_status/at/
+latency_ms/선택 공개값 display_value/attempt/delivery_id가 들어갑니다.
+Lua는 `sacho.json_decode(sacho.env("SACHO_EVENT_JSON"))`으로 읽습니다. JSON 템플릿도
+같은 문맥을 사용합니다.
+
+```jinja
+{"event":{{ event|tojson }},"monitor":{{ name|tojson }},"status":{{ status|tojson }}}
+```
+
+원본 검사 출력이나 인증값은 문맥에 들어가지 않습니다. JSON 템플릿은 엄격한 변수 검사와
+크기 제한을 적용하고 인증 헤더는 동작별 headers_env에서 읽습니다. 검사별 동작과 기존
+공통 구독 메일·웹훅은 함께 동작하며 공통 알림 지연·쿨다운·유지보수 정책은 그대로 적용됩니다.
+
+## LLM 설정 자동화용 정확한 API 형식
+
+`/api/admin/*`는 설정된 관리자 인증이 필요합니다. 변경 요청에는
+`X-Sacho-Request: 1`을 보내고, 브라우저 Origin은 기본 공개 주소나 `public_origins`와
+일치해야 합니다. 기존 인증 프록시 세션을 사용하세요. 공개 프록시에 임의 사용자 헤더를
+보낸다고 관리자 권한이 생기는 것으로 가정하면 안 됩니다.
+
+| 경로 | 메서드 | 요청·응답 |
+| --- | --- | --- |
+| `/api/admin/examples` | GET | id/title/spec/inputs/requirements 예제 목록 |
+| `/api/admin/validate` | POST | 검사 spec → valid/errors/warnings/required_env |
+| `/api/admin/test` | POST | 로컬 검사 spec → 저장·동작 실행 없는 관측 결과 |
+| `/api/admin/items` | POST | 검사 spec → 생성된 id |
+| `/api/admin/items/{id}` | PUT | 검사 spec 교체, 연속 횟수 초기화·이전 revision 동작 취소 |
+| `/api/admin/inputs` | GET | vault_configured/scope/값 없는 inputs 메타데이터 |
+| `/api/admin/inputs/{name}` | PUT | `{"value":"새 비밀값","enabled":true}`; value를 생략하면 주입 허용만 변경 |
+| `/api/admin/inputs/{name}` | DELETE | vault 값·동적 허용 삭제, 서버 설정은 유지 |
+| `/api/admin/push/{id}/token` | POST | token/endpoint/shown_once, 기존 키 교체 |
+| `/api/admin/push/{id}/token` | DELETE | 보고 키 폐기 |
+
+예제 spec을 읽고 필요한 필드만 바꾼 뒤 검증·저장합니다. 비밀값은 보호된 inputs 경로로
+전달하고 target·동작 body·헤더 리터럴에는 넣지 마세요. 조회 API로 저장된 비밀값을 복구할
+수는 없습니다. 검사 `actions` 배열은 트리거별 하나씩 최대 두 개입니다.
+
+```json
+{
+  "trigger":"failure","mode":"transition","kind":"https",
+  "target":"https://example.com/monitor-hook",
+  "body":"{\"event\":{{ event|tojson }},\"status\":{{ status|tojson }}}",
+  "headers_env":{"Authorization":"HOOK_AUTHORIZATION"},
+  "after_count":3,"delay_seconds":10,"cooldown_seconds":300,
+  "max_attempts":1,"retry_seconds":30,"wait_after_seconds":30,"timeout_seconds":15
+}
+```
+
+trigger는 success/failure, mode는 transition/repeat, kind는 shell/python/lua/https입니다.
+https 종류는 HTTP(S) POST를 뜻하며 스크립트 종류의 target에는 소스를 넣습니다.
+횟수 1..100, 시도 1..5, 타임아웃 1..300초, 시간 필드 0..86400초이고 재시도 간격은
+1..86400초입니다. 반복 쿨다운은 최소 5초입니다. 동작 결과로 검사 관측 상태를 바꾸지
+않습니다. 실서버 동작을 켜기 전에 격리한 환경에서 실행 대상을 검증하세요.

@@ -18,8 +18,10 @@ def main():
    assert run('help','monitoring','--language',language).stdout==(ROOT/f'docs/MONITORING{suffix}.md').read_text()
   assert 'Run the status page' in run('help','serve').stdout
   run('help','nonexistent',ok=False);run('help','setup','--language','invalid',ok=False)
-  for name in ('prometheus','postgresql','external-command','docker'):
+  for name in ('prometheus','postgresql','external-command','docker','ping'):
    assert run('example',name).stdout==(ROOT/f'examples/lua/{name}.lua').read_text()
+  for name,path in [('shell','shell/basic.sh'),('python','python/basic.py'),('lua','lua/basic.lua')]:
+   assert run('example',name).stdout==(ROOT/'examples'/path).read_text()
   assert not (directory/'sacho.db').exists()
   vault=directory/'vault.enc';key=directory/'unlock.key';paths=['--vault',str(vault),'--key-file',str(key)]
   run('secrets','init',*paths);run('secrets','init',*paths,ok=False)

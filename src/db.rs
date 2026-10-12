@@ -21,6 +21,22 @@ pub struct CheckSpec {
     pub target: String,
     pub interval_seconds: u64,
     pub timeout_seconds: u64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub cron: String,
+    #[serde(skip_serializing_if = "default_timezone")]
+    pub schedule_timezone: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub initial_delay_seconds: u64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub prometheus_query: String,
+    #[serde(skip_serializing_if = "default_dns_type")]
+    pub dns_record_type: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub dns_server: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dns_expected: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<crate::actions::Action>,
     pub expected_status: u16,
     pub headers_env: std::collections::BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -49,6 +65,15 @@ pub struct CheckSpec {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub public_message_pointer: String,
 }
+fn default_timezone(v: &str) -> bool {
+    v == "UTC"
+}
+fn default_dns_type(v: &str) -> bool {
+    v == "A"
+}
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
 fn default_failure_status(value: &str) -> bool {
     value == "outage"
 }
@@ -63,6 +88,14 @@ impl Default for CheckSpec {
             target: String::new(),
             interval_seconds: 60,
             timeout_seconds: 10,
+            cron: String::new(),
+            schedule_timezone: "UTC".into(),
+            initial_delay_seconds: 0,
+            prometheus_query: String::new(),
+            dns_record_type: "A".into(),
+            dns_server: String::new(),
+            dns_expected: vec![],
+            actions: vec![],
             expected_status: 200,
             headers_env: Default::default(),
             required_env: Vec::new(),
@@ -89,6 +122,16 @@ impl Default for CheckSpec {
 }
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
+        crate::scheduling::validate(self)?;
+        crate::sources::validate(self)?;
+        ensure!(self.actions.len() <= 2, "at most two actions per monitor");
+        ensure!(
+            self.actions.len() < 2 || self.actions[0].trigger != self.actions[1].trigger,
+            "only one action per trigger"
+        );
+        for action in &self.actions {
+            action.validate()?;
+        }
         if let Some(rules) = &self.value_rules {
             rules.validate()?;
         }
@@ -123,7 +166,10 @@ impl CheckSpec {
         );
         ensure!(!self.target.trim().is_empty(), "target or script required");
         ensure!(
-            matches!(self.kind.as_str(), "http" | "shell" | "python" | "lua"),
+            matches!(
+                self.kind.as_str(),
+                "http" | "shell" | "python" | "lua" | "prometheus" | "dns" | "tcp" | "push"
+            ),
             "unsupported check kind"
         );
         ensure!(
@@ -165,7 +211,7 @@ impl CheckSpec {
                 "header value must name an allowed environment variable"
             );
         }
-        if self.kind == "http" {
+        if self.kind == "http" || self.kind == "prometheus" {
             let url = reqwest::Url::parse(&self.target)?;
             ensure!(
                 matches!(url.scheme(), "http" | "https")
@@ -283,10 +329,16 @@ pub fn save(conn: &mut Connection, id: Option<String>, spec: &CheckSpec) -> Resu
         Ok(id)
     } else {
         let id = Uuid::new_v4().to_string();
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO items(id,spec) VALUES(?,?)",
             params![id, encoded],
         )?;
+        tx.execute(
+            "INSERT INTO settings(key,value) VALUES(?,?)",
+            params![format!("schedule.start.{id}"), now().to_string()],
+        )?;
+        tx.commit()?;
         Ok(id)
     }
 }
@@ -333,6 +385,10 @@ pub(crate) fn record_transaction(
     } else {
         old.as_str()
     };
+    tx.execute(
+        "DELETE FROM settings WHERE key=?",
+        [format!("schedule.run.{}", item.id)],
+    )?;
     let at = now();
     let metric =
         crate::monitoring::number(&obs.output, crate::monitoring::metric_pointer(&item.spec));
@@ -342,6 +398,7 @@ pub(crate) fn record_transaction(
         "UPDATE items SET status=?,last_check=?,latency_ms=?,failures=?,successes=? WHERE id=?",
         params![next, at, obs.latency_ms, failures, successes, item.id],
     )?;
+    crate::actions::queue(tx, item, obs, &old, next, failures, successes)?;
     let old_bad = old == "outage" || old == "degraded";
     let next_bad = next == "outage" || next == "degraded";
     if !old_bad && next_bad {

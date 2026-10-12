@@ -368,3 +368,14 @@ admin writes and subscriptions from an explicit additional origin. Keep
 `public_url` as the canonical origin for email links and enrollment metadata.
 Origins are exact HTTP(S) origins, at most 16; wildcards and arbitrary Host or
 forwarded-host headers do not grant permission. Reload the service after editing.
+
+## Configure monitoring extensions (v0.1.9+)
+
+Read `sacho help monitoring --language en` before configuring runtime inputs, actions,
+cron/timezones, native Prometheus/DNS/TCP or authenticated external reports. The admin
+Check examples catalogue includes Shell/Python/Lua starters and native-source presets.
+Environment & secrets manages encrypted local inputs with names-only readback and
+hot rotation. Native network probes execute on the selected updated node; per-check
+actions execute on the controller, default to none, and have delay/retry/cooldown/grace
+controls. Push monitors issue their own reusable reporting key, separate from worker
+one-time enrollment. Never invent endpoint support for protocols absent from the guide.

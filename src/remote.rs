@@ -150,7 +150,11 @@ pub fn claim(
     for item in items {
         if !item.spec.enabled
             || item.spec.worker != node
-            || (!allow_scripts && item.spec.kind != "http")
+            || (!allow_scripts
+                && !matches!(
+                    item.spec.kind.as_str(),
+                    "http" | "prometheus" | "dns" | "tcp"
+                ))
         {
             continue;
         }
@@ -166,10 +170,7 @@ pub fn claim(
         }) {
             continue;
         }
-        if item
-            .last_check
-            .is_some_and(|at| db::now() - at < item.spec.interval_seconds as i64)
-        {
+        if !crate::scheduling::due(&tx, &item, db::now())? {
             continue;
         }
         let run_id = Uuid::new_v4().to_string();
@@ -223,7 +224,12 @@ pub fn complete(
     let Some(item) = item else {
         return Ok(false);
     };
-    if !allow_scripts && item.spec.kind != "http" {
+    if !allow_scripts
+        && !matches!(
+            item.spec.kind.as_str(),
+            "http" | "prometheus" | "dns" | "tcp"
+        )
+    {
         return Ok(false);
     }
     if id != result.run_id {
@@ -592,7 +598,11 @@ pub async fn run(path: &FilePath) -> Result<()> {
             ensure!(
                 assignment.protocol == 1
                     && assignment.spec.worker == worker.node_id
-                    && (worker.allow_scripts || assignment.spec.kind == "http"),
+                    && (worker.allow_scripts
+                        || matches!(
+                            assignment.spec.kind.as_str(),
+                            "http" | "prometheus" | "dns" | "tcp"
+                        )),
                 "unsupported assignment"
             );
             assignment.spec.validate()?;

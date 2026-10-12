@@ -465,3 +465,50 @@ async fn additional_origin_allows_admin_writes_without_trusting_host() -> anyhow
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn input_and_reporting_key_management_reuse_admin_auth_and_csrf() -> anyhow::Result<()> {
+    let router = router(app(true));
+    for path in ["/api/admin/inputs", "/api/admin/push/unknown/token"] {
+        let method = if path.ends_with("token") {
+            "POST"
+        } else {
+            "GET"
+        };
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+    let body = Body::from(r#"{"value":"private-boundary-sentinel","enabled":true}"#);
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/admin/inputs/TEST_INPUT")
+                .header("x-forwarded-email", "admin@example.com")
+                .header("Content-Type", "application/json")
+                .body(body)?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/inputs")
+                .header("x-forwarded-email", "admin@example.com")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 65536).await?;
+    assert!(!String::from_utf8_lossy(&body).contains("private-boundary-sentinel"));
+    Ok(())
+}

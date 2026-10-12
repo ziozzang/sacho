@@ -84,7 +84,7 @@ pub async fn worker(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>) {
         tokio::select! {_=stop.changed()=>break,_=tick.tick()=>{}}
         let jobs = (|| -> Result<Vec<DeliveryJob>> {
             let conn = db.lock().unwrap();
-            let mut stmt=conn.prepare("SELECT id,kind,destination,payload,attempts FROM outbox WHERE delivered_at IS NULL AND attempts < 8 AND next_at <= ? ORDER BY id LIMIT 16")?;
+            let mut stmt=conn.prepare("SELECT id,kind,destination,payload,attempts FROM outbox WHERE kind != 'action' AND delivered_at IS NULL AND attempts < 8 AND next_at <= ? ORDER BY id LIMIT 16")?;
             Ok(stmt
                 .query_map([db::now()], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))

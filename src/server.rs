@@ -26,6 +26,11 @@ pub struct App {
 }
 #[derive(Debug)]
 pub struct ApiError(StatusCode, String);
+impl ApiError {
+    pub(crate) fn unauthorized() -> Self {
+        Self(StatusCode::UNAUTHORIZED, "Reporting token required".into())
+    }
+}
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.0, Json(json!({"error":self.1}))).into_response()
@@ -97,6 +102,7 @@ async fn admin_auth(State(app): State<App>, request: Request, next: Next) -> Res
     next.run(request).await
 }
 pub fn router(app: App) -> Router {
+    crate::inputs::restore(&app).expect("restore runtime input permissions");
     let admin = Router::new()
         .route("/api/admin/items", get(admin_items).post(create_item))
         .route(
@@ -107,6 +113,15 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/items/{id}/logs", get(logs))
         .route("/api/admin/test", post(test_draft))
         .route("/api/admin/validate", post(validate_draft))
+        .route(
+            "/api/admin/push/{id}/token",
+            post(crate::push::issue).delete(crate::push::revoke),
+        )
+        .route("/api/admin/inputs", get(crate::inputs::list))
+        .route(
+            "/api/admin/inputs/{name}",
+            put(crate::inputs::put).delete(crate::inputs::remove),
+        )
         .route("/api/admin/examples", get(examples))
         .route("/api/admin/export", get(export_settings))
         .route(
@@ -129,7 +144,7 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/worker-bootstrap", post(create_bootstrap))
         .route("/api/admin/workers/{node}", delete(revoke_worker))
         .route_layer(middleware::from_fn_with_state(app.clone(), admin_auth));
-    Router::new().merge(admin).merge(crate::remote::router())
+    Router::new().merge(admin).merge(crate::remote::router()).route("/api/push/{id}",post(crate::push::report))
         .route("/",get(index)).route("/admin",get(index)).route("/admin/",get(index))
         .route("/assets/lua-editor.js",get(lua_script)).route("/assets/lua-editor.css",get(lua_style))
         .route("/assets/app.js",get(script)).route("/assets/style.css",get(style))
@@ -223,9 +238,12 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
         if !item.spec.enabled {
             continue;
         }
-        let stale = item.last_check.is_none_or(|at| {
-            db::now() - at > (item.spec.interval_seconds * 2 + item.spec.timeout_seconds) as i64
-        });
+        let scheduled = crate::scheduling::next(&conn, &item)?;
+        let stale = item.last_check.is_none()
+            || scheduled.is_some_and(|at| {
+                db::now()
+                    > at + item.spec.interval_seconds as i64 + item.spec.timeout_seconds as i64
+            });
         let effective = if stale { "unknown" } else { &item.status };
         let display = if item.spec.publish_value {
             conn.query_row(
@@ -251,10 +269,7 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
             [&item.id],
             |r| r.get(0),
         )?;
-        let next_check = item
-            .last_check
-            .map(|at| at + item.spec.interval_seconds as i64)
-            .unwrap_or(db::now());
+        let next_check = crate::scheduling::next(&conn, &item)?;
         let value_severity = if item.spec.publish_value {
             item.spec.value_rules.as_ref().and_then(|rules| {
                 display
@@ -430,12 +445,15 @@ async fn revoke_worker(State(app): State<App>, Path(node): Path<String>) -> ApiR
     Ok(Json(json!({"revoked":true})))
 }
 fn validate_worker(conn: &rusqlite::Connection, cfg: &Config, spec: &CheckSpec) -> ApiResult<()> {
+    if spec.kind == "push" && !spec.worker.is_empty() {
+        return Err(bad("Push checks run on the controller"));
+    }
     if spec.worker.is_empty() {
         return Ok(());
     }
     let allow_scripts = crate::remote::node_permission(conn, cfg, &spec.worker)?
         .ok_or_else(|| bad("Worker is not registered"))?;
-    if spec.kind != "http" && !allow_scripts {
+    if !matches!(spec.kind.as_str(), "http" | "prometheus" | "dns" | "tcp") && !allow_scripts {
         return Err(bad("This worker is not allowed to execute scripts"));
     }
     Ok(())
@@ -470,7 +488,18 @@ async fn delete_item(State(app): State<App>, Path(id): Path<String>) -> ApiResul
     let tx = conn.transaction()?;
     // An administratively deleted monitor closes its incident without sending a recovery.
     tx.execute("UPDATE incidents SET status='removed',resolved_at=? WHERE item_id=? AND resolved_at IS NULL",params![db::now(),id])?;
-    let n = tx.execute("DELETE FROM items WHERE id=?", [id])?;
+    let n = tx.execute("DELETE FROM items WHERE id=?", [&id])?;
+    for prefix in [
+        "push.token.",
+        "schedule.start.",
+        "schedule.run.",
+        "schedule.hold.",
+    ] {
+        tx.execute(
+            "DELETE FROM settings WHERE key=?",
+            [format!("{prefix}{id}")],
+        )?;
+    }
     tx.commit()?;
     if n == 0 {
         return Err(ApiError(StatusCode::NOT_FOUND, "Service not found.".into()));
@@ -482,10 +511,11 @@ async fn run_item(State(app): State<App>, Path(id): Path<String>) -> ApiResult<J
         .db
         .lock()
         .unwrap()
-        .execute("UPDATE items SET last_check=NULL WHERE id=?", [id])?;
+        .execute("UPDATE items SET last_check=NULL WHERE id=?", [&id])?;
     if n == 0 {
         return Err(ApiError(StatusCode::NOT_FOUND, "Service not found.".into()));
     }
+    app.db.lock().unwrap().execute("INSERT INTO settings(key,value) VALUES(?,'1') ON CONFLICT(key) DO UPDATE SET value=excluded.value",[format!("schedule.run.{id}")])?;
     Ok(Json(json!({"queued":true})))
 }
 #[derive(Deserialize)]
@@ -748,8 +778,8 @@ async fn delete_webhook(State(app): State<App>, Path(id): Path<String>) -> ApiRe
 }
 async fn notifications(State(app): State<App>) -> ApiResult<Json<Value>> {
     let conn = app.db.lock().unwrap();
-    let mut stmt=conn.prepare("SELECT id,kind,destination,attempts,next_at,delivered_at,error,created_at FROM outbox ORDER BY id DESC LIMIT 100")?;
-    let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"destination":r.get::<_,String>(2)?,"attempts":r.get::<_,u32>(3)?,"next_at":r.get::<_,i64>(4)?,"delivered_at":r.get::<_,Option<i64>>(5)?,"error":r.get::<_,Option<String>>(6)?,"created_at":r.get::<_,i64>(7)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let mut stmt=conn.prepare("SELECT id,kind,destination,attempts,next_at,delivered_at,error,created_at,CAST(json_extract(payload,'$.action.max_attempts') AS INTEGER) FROM outbox ORDER BY id DESC LIMIT 100")?;
+    let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"destination":r.get::<_,String>(2)?,"attempts":r.get::<_,u32>(3)?,"next_at":r.get::<_,i64>(4)?,"delivered_at":r.get::<_,Option<i64>>(5)?,"error":r.get::<_,Option<String>>(6)?,"created_at":r.get::<_,i64>(7)?,"max_attempts":r.get::<_,Option<u32>>(8)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
     Ok(Json(json!(rows)))
 }
 pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
@@ -762,9 +792,15 @@ pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
         cfg: cfg.clone(),
         test_slots: Arc::new(tokio::sync::Semaphore::new(2)),
     };
+    crate::inputs::restore(&app)?;
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let checks = tokio::spawn(crate::engine::scheduler(
+        db.clone(),
+        cfg.clone(),
+        stop_rx.clone(),
+    ));
+    let actions = tokio::spawn(crate::actions::worker(
         db.clone(),
         cfg.clone(),
         stop_rx.clone(),
@@ -782,6 +818,7 @@ pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
         .await?;
     let _ = checks.await;
     let _ = notifications.await;
+    let _ = actions.await;
     ensure!(
         db.lock()
             .unwrap()

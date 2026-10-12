@@ -14,6 +14,13 @@ systems connected by webhooks; they are outside the current product scope.
 
 ![Admin workspace](docs/screenshots/admin-desktop.png)
 
+Built-in Prometheus instant queries, DNS record checks, TCP connection timing and
+per-monitor authenticated Push reports complement HTTP and trusted Shell/Python/Lua
+checks. Admin-managed encrypted inputs support hot rotation. Checks can use cron in
+an explicit IANA timezone and opt-in controller actions with streaks, delays, retries,
+cooldowns and post-action grace. Language and display timezone use persistent dropdowns.
+See [the embedded monitoring guide](docs/MONITORING.md) for exact protocol and action semantics.
+
 ## Run
 
 Download `sacho-<target>` from [Releases](https://github.com/ziozzang/sacho/releases),

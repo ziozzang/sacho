@@ -26,6 +26,10 @@ fn setup_guide(language: GuideLanguage) -> &'static str {
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum ExampleName {
+    Ping,
+    Shell,
+    Python,
+    Lua,
     Prometheus,
     Docker,
     Postgresql,
@@ -247,6 +251,10 @@ async fn main() -> Result<()> {
         Commands::Example { name } => {
             use std::io::Write;
             let source = match name {
+                ExampleName::Ping => include_str!("../examples/lua/ping.lua"),
+                ExampleName::Shell => include_str!("../examples/shell/basic.sh"),
+                ExampleName::Python => include_str!("../examples/python/basic.py"),
+                ExampleName::Lua => include_str!("../examples/lua/basic.lua"),
                 ExampleName::Docker => include_str!("../examples/lua/docker.lua"),
                 ExampleName::Prometheus => include_str!("../examples/lua/prometheus.lua"),
                 ExampleName::Postgresql => include_str!("../examples/lua/postgresql.lua"),

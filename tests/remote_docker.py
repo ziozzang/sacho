@@ -113,6 +113,11 @@ allow_insecure_http=true
             enrolled_id=add('edge-new',source,'Bootstrap check')
             wait(lambda:values().get(enrolled_id)=='edge-new')
             assert next(n for n in request('/api/admin/workers') if n['id']=='edge-new')['label']=='Bootstrap worker'
+            # Native TCP and timezone cron are scheduled remotely without local fallback.
+            native=request('/api/admin/items',{'name':'Native TCP on agent','kind':'tcp','target':'control:8080','worker':'edge-new','interval_seconds':5,'timeout_seconds':3,'publish_value':True,'display_pointer':'/value'})['id']
+            wait(lambda:any(i['id']==native and i['status']=='operational' and i['display_value'] is not None for i in request('/api/status')['items']))
+            scheduled=request('/api/admin/items',{'name':'Remote cron','kind':'lua','target':'return sacho.json_encode({value=sacho.env("LOCATION")})','worker':'edge-new','interval_seconds':5,'timeout_seconds':3,'cron':'*/5 * * * * *','schedule_timezone':'Asia/Seoul','publish_value':True,'display_pointer':'/value'})['id']
+            wait(lambda:values().get(scheduled)=='edge-new')
             # Verify duplicate result handling through the actual HTTP endpoint.
             docker('pause',a)
             second=add('edge-a',source,'Retry fixture')
@@ -157,7 +162,7 @@ allow_insecure_http=true
             request('/api/admin/items/'+ids['edge-b']+'/run',{})
             old_at=next(i['last_check'] for i in request('/api/admin/items') if i['id']==ids['edge-b'])
             wait(lambda:any(i['id']==ids['edge-b'] and i['last_check'] is not None and i['last_check']!=old_at for i in request('/api/admin/items')))
-            print('PASS: static controller + remote Docker workers, node isolation, local secret injection, '
+            print('PASS: native TCP and timezone cron on an actual remote agent;  static controller + remote Docker workers, node isolation, local secret injection, '
                   'authentication/protocol rejection, duplicate results, lease takeover/stale rejection, '
                   'network reconnect, controller restart and one-time bootstrap/encrypted registered worker')
         finally:

@@ -17,6 +17,12 @@ v0.1.4에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL �
 
 [English](README.md) · [Lua 시나리오](docs/LUA.ko.md) · [배포](docs/DEPLOYMENT.ko.md)
 
+HTTP·Shell/Python/Lua 외에 네이티브 Prometheus 순간 쿼리, DNS 레코드, TCP 연결 시간,
+검사별 인증된 Push 보고를 지원합니다. 관리자에서 암호화 입력을 교체하면 다음 검사부터
+반영됩니다. IANA 시간대의 cron과 선택적 메인 서버 동작에 연속 횟수·지연·재시도·쿨다운·
+실행 후 대기를 지정할 수 있습니다. 언어·표시 시간대는 드롭다운으로 선택해 저장합니다.
+정확한 지원 범위와 동작은 [내장 모니터링 안내](docs/MONITORING.ko.md)를 참고하세요.
+
 ## 실행
 
 [릴리스](https://github.com/ziozzang/sacho/releases)에서 OS·아키텍처에 맞는

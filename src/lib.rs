@@ -19,3 +19,10 @@ pub mod worker_join;
 pub mod monitoring;
 
 pub mod setup;
+
+pub mod inputs;
+
+pub mod actions;
+pub mod push;
+pub mod scheduling;
+pub mod sources;

@@ -26,7 +26,7 @@ def main():
    try:request('/api/admin/items',invalid);raise AssertionError('invalid Lua saved')
    except urllib.error.HTTPError as e:assert e.code==400
    missing={**spec,'required_env':['NOT_INJECTED'],'target':'return 1'};assert 'NOT_INJECTED' in json.dumps(request('/api/admin/validate',missing)['warnings'])
-   examples=request('/api/admin/examples');assert {e['id'] for e in examples}=={'http','json','docker','postgresql','prometheus'}
+   examples=request('/api/admin/examples');assert {e['id'] for e in examples}=={'http','json','docker','postgresql','prometheus','shell','python','lua','dns','tcp','push','prometheus-native','ping'}
    for e in examples:assert request('/api/admin/validate',e['spec'])['valid']
    ident=request('/api/admin/items',spec)['id'];wait_for(lambda:request('/api/status')['items'][0]['last_success'])
    now=int(time.time());connection=sqlite3.connect(directory/'db');connection.execute('INSERT INTO checks(item_id,at,status,latency_ms,output,detail,metric_value,display_value) VALUES(?,?,?,?,?,?,?,?)',(ident,now-60,'operational',12,'{"remaining":60}', '',60,'60'));connection.commit()

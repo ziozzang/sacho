@@ -162,3 +162,32 @@ fn oldest_remote_monitor_gets_capacity_before_alphabetical_names() -> Result<()>
     );
     Ok(())
 }
+
+#[test]
+fn native_checks_need_no_script_permission_and_actions_commit_once() -> Result<()> {
+    let db = db::open(":memory:")?;
+    let mut conn = db.lock().unwrap();
+    let native = CheckSpec {
+        name: "Native TCP".into(),
+        kind: "tcp".into(),
+        target: "example.com:443".into(),
+        worker: "edge".into(),
+        actions: vec![sacho::actions::Action {
+            kind: "lua".into(),
+            target: "return true".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    db::save(&mut conn, None, &native)?;
+    let assignment = remote::claim(&mut conn, "edge", false)?.unwrap();
+    let completion = result(&assignment);
+    assert!(remote::complete(&mut conn, "edge", false, &completion)?);
+    assert!(remote::complete(&mut conn, "edge", false, &completion)?);
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM outbox WHERE kind='action'", [], |r| r
+            .get::<_, u32>(0))?,
+        1
+    );
+    Ok(())
+}

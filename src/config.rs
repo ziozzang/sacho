@@ -21,6 +21,10 @@ pub struct Config {
     pub remote_workers: Vec<RemoteWorker>,
     pub secrets: Option<Secrets>,
     #[serde(skip)]
+    pub probe_overrides: std::collections::BTreeMap<String, String>,
+    #[serde(skip)]
+    pub runtime_inputs: std::sync::Arc<std::sync::RwLock<Vec<String>>>,
+    #[serde(skip)]
     pub secret_values: std::collections::BTreeMap<String, String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
@@ -111,6 +115,8 @@ impl Default for Config {
             remote_workers: vec![],
             secrets: None,
             secret_values: Default::default(),
+            runtime_inputs: Default::default(),
+            probe_overrides: Default::default(),
         }
     }
 }
@@ -124,10 +130,36 @@ impl Config {
         cfg.validate()?;
         Ok(cfg)
     }
+    pub fn probe_names(&self) -> Vec<String> {
+        let mut names = self.probe_env.clone();
+        for name in self.runtime_inputs.read().unwrap().iter() {
+            if !names.contains(name) && self.manageable_input(name) {
+                names.push(name.clone());
+            }
+        }
+        names
+    }
+    pub fn manageable_input(&self, name: &str) -> bool {
+        crate::secrets::valid_name(name)
+            && !self.remote_workers.iter().any(|w| w.token_env == name)
+            && self.smtp.as_ref().and_then(|s| s.password_env.as_deref()) != Some(name)
+    }
     pub fn environment(&self, name: &str) -> Result<String> {
-        std::env::var(name)
-            .ok()
-            .or_else(|| self.secret_values.get(name).cloned())
+        if let Some(value) = self.probe_overrides.get(name) {
+            return Ok(value.clone());
+        }
+        if let Ok(value) = std::env::var(name) {
+            return Ok(value);
+        }
+        let values = match &self.secrets {
+            Some(paths) => {
+                crate::secrets::load(Path::new(&paths.vault), Path::new(&paths.key_file))?
+            }
+            None => self.secret_values.clone(),
+        };
+        values
+            .get(name)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("named input is not available"))
     }
     pub fn validate(&self) -> Result<()> {

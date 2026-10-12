@@ -47,7 +47,7 @@ pub fn validate(spec: &CheckSpec, cfg: &Config) -> Value {
     }
     if spec.worker.is_empty() {
         for name in &names {
-            if !cfg.probe_env.contains(name) {
+            if !cfg.probe_names().contains(name) {
                 warnings.push(format!("{name}: not in probe_env"));
             } else if cfg.environment(name).is_err() {
                 warnings.push(format!("{name}: input is not available"));
@@ -105,7 +105,73 @@ pub fn catalogue() -> Value {
         comparison: "gte".into(),
         ..Default::default()
     };
+    let native_prometheus = CheckSpec {
+        name: "Prometheus query".into(),
+        kind: "prometheus".into(),
+        target: "https://prometheus.example.com".into(),
+        prometheus_query: "sum(rate(http_requests_total[5m]))".into(),
+        publish_value: true,
+        display_pointer: "/value".into(),
+        publish_trend: true,
+        trend_pointer: "/value".into(),
+        ..Default::default()
+    };
+    let native_dns = CheckSpec {
+        name: "DNS records".into(),
+        kind: "dns".into(),
+        target: "example.com".into(),
+        publish_value: true,
+        display_pointer: "/display".into(),
+        json_pointer: "/healthy".into(),
+        threshold: Some(1.0),
+        comparison: "gte".into(),
+        ..Default::default()
+    };
+    let native_tcp = CheckSpec {
+        name: "TCP connectivity".into(),
+        kind: "tcp".into(),
+        target: "example.com:443".into(),
+        publish_value: true,
+        display_pointer: "/value".into(),
+        metric_unit: "ms".into(),
+        publish_trend: true,
+        trend_pointer: "/value".into(),
+        ..Default::default()
+    };
+    let push = CheckSpec {
+        name: "External report".into(),
+        kind: "push".into(),
+        target: "push".into(),
+        interval_seconds: 300,
+        publish_value: true,
+        display_pointer: "/value".into(),
+        ..Default::default()
+    };
+    let starter = |name: &str, kind: &str, source: &str| CheckSpec {
+        name: name.into(),
+        kind: kind.into(),
+        target: source.into(),
+        publish_value: true,
+        display_pointer: "/display".into(),
+        json_pointer: "/healthy".into(),
+        threshold: Some(1.0),
+        comparison: "gte".into(),
+        ..Default::default()
+    };
+    let ping = starter(
+        "ICMP reachability",
+        "lua",
+        include_str!("../examples/lua/ping.lua"),
+    );
     let mut examples = json!([
+        {"id":"ping","title":"ICMP ping","spec":ping,"inputs":["PING_HOST"],"requirements":"External ping with ICMP permission; firewalls may block ICMP independently of service health"},
+        {"id":"prometheus-native","title":"Prometheus (native)","spec":native_prometheus,"inputs":[],"requirements":"Prometheus instant-query API; exactly one scalar or series"},
+        {"id":"dns","title":"DNS records","spec":native_dns,"inputs":[],"requirements":"Built-in resolver; optional DNS server IP and exact expected answer set"},
+        {"id":"tcp","title":"TCP connection time","spec":native_tcp,"inputs":[],"requirements":"Built in; host:port or [IPv6]:port"},
+        {"id":"push","title":"External report / heartbeat","spec":push,"inputs":[],"requirements":"Save, issue a reporting token, then POST status and data within the configured interval"},
+        {"id":"shell","title":"Shell script","spec":starter("Shell clock", "shell", include_str!("../examples/shell/basic.sh")),"inputs":[],"requirements":"/bin/sh and date on the executing node"},
+        {"id":"python","title":"Python code","spec":starter("Python version", "python", include_str!("../examples/python/basic.py")),"inputs":[],"requirements":"python3 on the executing node"},
+        {"id":"lua","title":"Lua script","spec":starter("Embedded Lua version", "lua", include_str!("../examples/lua/basic.lua")),"inputs":[],"requirements":"Built in; no external interpreter or inputs required"},
         {"id":"http","title":"HTTP / API","spec":http,"inputs":[],"requirements":"HTTP(S) connectivity"},
         {"id":"json","title":"JSON scalar / TPS","spec":scalar,"inputs":["CHECK_URL"],"requirements":"A JSON response with a numeric value field"},
         {"id":"prometheus","title":"Prometheus","spec":prometheus,"inputs":["PROMETHEUS_URL","PROMETHEUS_QUERY"],"requirements":"A query returning exactly one scalar or series"},
@@ -121,7 +187,15 @@ pub fn export(conn: &Connection, cfg: &Config) -> anyhow::Result<Value> {
     let mut items = vec![];
     for item in db::items(conn)? {
         let mut spec = serde_json::to_value(&item.spec)?;
-        spec.as_object_mut().unwrap().remove("target");
+        for field in [
+            "target",
+            "actions",
+            "prometheus_query",
+            "dns_server",
+            "dns_expected",
+        ] {
+            spec.as_object_mut().unwrap().remove(field);
+        }
         // Header configuration is an input reference, never a credential value.
         items.push(json!({"id":item.id,"spec":spec,"required_env":inputs(&item.spec.target),"target_omitted":true}));
     }
