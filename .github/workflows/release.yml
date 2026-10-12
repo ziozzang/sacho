@@ -1,9 +1,7 @@
 name: Build, test and release
 
+# Cost control: run only when explicitly dispatched; pushes, tags and PRs do not run CI.
 on:
-  push:
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 permissions:

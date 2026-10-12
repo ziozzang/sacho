@@ -159,9 +159,11 @@ python3 tests/hangang_proxy.py
 
 Set `SACHO_BINARY` when testing a release or cross-target build. `HANGANG_BINARY`
 selects the real Hangang executable for its isolated integration test.
-GitHub Actions qualifies Linux/macOS on x86_64/ARM64 and publishes signed raw
-executables for canonical version tags. Editor rebuilding uses `npm ci` followed
-by `npm run build:lua-editor` in `web`.
+Run builds and checks locally by default. GitHub Actions runs only when explicitly
+dispatched; pushes, tags and pull requests do not trigger it. An optional manual
+run qualifies Linux/macOS on x86_64/ARM64 and publishes signed raw executables
+when dispatched against a canonical version tag. Editor rebuilding uses `npm ci`
+followed by `npm run build:lua-editor` in `web`.
 
 Administrators are trusted operators: shell/Python checks intentionally execute
 server-side commands with the service user's filesystem permissions. Lua excludes
