@@ -319,6 +319,12 @@ async fn shell_timeout_kills_descendants_and_python_numeric_condition() -> anyho
     assert_eq!(obs.status, "operational", "{}", obs.detail);
     item.spec.threshold = Some(50.0);
     assert_eq!(sacho::engine::probe(&item).await.status, "outage");
+    item.spec.failure_status = "degraded".into();
+    let warning = sacho::engine::probe(&item).await;
+    assert_eq!(warning.status, "degraded");
+    assert!(warning.detail.contains("numeric condition failed"));
+    item.spec.target = "raise RuntimeError(\"private error\")".into();
+    assert_eq!(sacho::engine::probe(&item).await.status, "degraded");
     Ok(())
 }
 #[test]
@@ -368,5 +374,44 @@ async fn account_reports_only_verified_proxy_identity_subscription() -> anyhow::
     let body: serde_json::Value =
         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4096).await?)?;
     assert_eq!(body["subscription"], "subscribed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn public_value_survives_failed_check_without_leaking_logs() -> anyhow::Result<()> {
+    let app = app(true);
+    {
+        let mut conn = app.db.lock().unwrap();
+        let configured = CheckSpec {
+            publish_value: true,
+            display_pointer: "/value".into(),
+            public_message_pointer: "/message".into(),
+            ..spec()
+        };
+        db::save(&mut conn, None, &configured)?;
+        let item = db::items(&conn)?.remove(0);
+        let mut success = observation("operational");
+        success.output = "{\"value\":20}".into();
+        db::record(&mut conn, &item, &success)?;
+        let item = db::items(&conn)?.remove(0);
+        let mut failed = observation("outage");
+        failed.output = "{\"message\":\"Allowance query requires authentication\",\"private\":\"secret-token\"}".into();
+        db::record(&mut conn, &item, &failed)?;
+    }
+    let response = router(app)
+        .oneshot(Request::builder().uri("/api/status").body(Body::empty())?)
+        .await?;
+    let data: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+    let item = &data["items"][0];
+    assert_eq!(item["status"], "outage");
+    assert_eq!(item["display_value"], "20");
+    assert_eq!(item["display_value_stale"], true);
+    assert!(item["display_value_at"].is_number());
+    assert_eq!(
+        item["public_message"],
+        "Allowance query requires authentication"
+    );
+    assert!(!data.to_string().contains("secret-token"));
     Ok(())
 }

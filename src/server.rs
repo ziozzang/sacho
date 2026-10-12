@@ -223,16 +223,27 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
         let effective = if stale { "unknown" } else { &item.status };
         let display = if item.spec.publish_value {
             conn.query_row(
-                "SELECT display_value FROM checks WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                "SELECT display_value,at,id FROM checks WHERE item_id=? AND display_value IS NOT NULL AND display_value != '' ORDER BY id DESC LIMIT 1",
                 [&item.id],
-                |r| r.get::<_, Option<String>>(0),
-            )
-            .optional()?
-            .flatten()
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+            ).optional()?
         } else {
             None
         };
-        result.push(json!({"id":item.id,"name":item.spec.name,"description":item.spec.description,"group":item.spec.group,"status":effective,"last_check":item.last_check,"latency_ms":item.latency_ms,"interval_seconds":item.spec.interval_seconds,"display_value":display,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit}));
+        let latest = conn
+            .query_row(
+                "SELECT id,output FROM checks WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                [&item.id],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let value_stale = display
+            .as_ref()
+            .is_some_and(|v| stale || latest.as_ref().is_none_or(|c| c.0 != v.2));
+        let message = latest
+            .as_ref()
+            .and_then(|c| db::public_message(&item.spec, &c.1));
+        result.push(json!({"id":item.id,"name":item.spec.name,"description":item.spec.description,"group":item.spec.group,"status":effective,"last_check":item.last_check,"latency_ms":item.latency_ms,"interval_seconds":item.spec.interval_seconds,"publish_value":item.spec.publish_value,"display_value":display.as_ref().map(|v| &v.0),"display_value_at":display.as_ref().map(|v| v.1),"display_value_stale":value_stale,"public_message":message,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit}));
     }
     let status = if result.iter().any(|i| i["status"] == "outage") {
         "outage"

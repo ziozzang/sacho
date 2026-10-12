@@ -344,3 +344,16 @@ then feed it to worker-join via stdin. The worker saves its own credential encry
 the controller stores hashes only. Lost replies recover with that credential, not
 bootstrap replay. Select/revoke agents in admin. The complete procedure is embedded
 in `sacho help workers`. Keep the legacy static registration path compatible.
+
+Docker monitoring: `sacho example docker` prints a built-in Lua scenario using
+GET requests over a local Unix socket. Inject `DOCKER_SOCKET` and
+`DOCKER_CONTAINER` on the selected execution node, allow them in `probe_env`,
+set the health condition `/healthy gte 1`, publish `/display`, and optionally
+select `/message` as `public_message_pointer`. No Docker CLI is needed. Restrict
+socket access to trusted scripts; the socket itself grants host control even
+when mounted read-only. Published scalars survive failed queries as timestamped
+last-known values; missing values show unavailable. Only explicitly selected
+public messages are exposed, never raw errors or container environment values.
+Quota or collector checks can set `failure_status="degraded"` to signal warning
+instead of an availability outage on condition failures, errors and timeouts.
+The default remains `outage`; use updated workers for these optional fields.

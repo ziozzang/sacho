@@ -72,3 +72,41 @@ PATH/LANG; stdin is closed. Assert `exit_code == 0` before decoding stdout.
 Missing data must be treated as unavailable instead of a successful full allowance.
 
 See [examples/lua](../examples/lua) for Hangang, Dorang, TPS and quota scenarios.
+
+### Values when a check fails
+
+A published scalar remains visible when a later check has no scalar. The API
+reports `display_value_at` and `display_value_stale`; the page labels retained
+values as **Last known value** with their observation time. No prior value is
+shown as **Value unavailable**, never as a fabricated zero. A value in a failed
+check is still displayed; health and display extraction are independent.
+Set `public_message_pointer="/message"` to publish a short JSON string selected
+from the **latest** check output, including failed conditions. This is opt-in:
+raw logs and internal errors remain private. Return structured JSON with a
+numeric condition instead of asserting before returning it if a failure needs
+a public explanation. Never include secrets in this selected field.
+
+### Docker containers through a Unix socket
+
+`sacho example docker` prints an embedded container inspection scenario.
+`sacho.http({url="http://localhost/...", unix_socket="/absolute/docker.sock"})`
+uses the built-in HTTP client, requires GET without a body, disables proxies
+and follows no redirects. Configure `DOCKER_SOCKET` and `DOCKER_CONTAINER` in
+the executing node's `probe_env`; use `/healthy gte 1`, publish `/display`, and
+optionally publish `/message`. Running containers without a HEALTHCHECK pass;
+`starting`, `unhealthy`, stopped and missing containers fail. No Docker CLI,
+external Lua library or new dependency is required. A rootless Docker socket
+or a remote worker on the Docker host can also be used.
+
+Grant socket access only to trusted monitoring code. Docker socket possession
+provides powerful host access; a read-only bind mount does not restrict API
+methods. The built-in helper restricts socket requests to GET, but script
+execution is not a security sandbox. Use a restricted socket proxy if stronger
+isolation is required. Container inspection responses are bounded to 64 KiB;
+large responses fail rather than exposing a partial document. Only explicitly
+selected scalars and public messages are published, never container environment.
+
+For quota, informational or collector checks, set `failure_status="degraded"`
+to treat condition failures, request errors and timeouts as warnings. The default
+is `outage`. This changes only severity; failed observations and explanations
+remain visible and still trigger monitoring notifications.

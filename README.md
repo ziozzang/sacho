@@ -51,6 +51,10 @@ locations. Multi-controller HA is deferred. See [remote workers](docs/REMOTE-WOR
 - Display the latest query result independently from health: version strings, TPS,
   subscription remaining percentages or another scalar. Public display is opt-in;
   scripts, raw output, credentials and condition configuration remain private.
+- Published values stay visible with a timestamp when later queries fail; optional
+  public explanations and warning severity distinguish collector issues.
+- Docker container monitoring through native Lua HTTP over a Unix socket, including
+  running/stopped and HEALTHCHECK states: `sacho example docker`.
 - Durable observations and logs; 5s, 10s, 30s, 1m, 5m, 30m, 1h and daily aggregation, from a
   one-hour detail view to 90 days. Empty periods stay gray. Uptime is the fraction
   of **observed checks** that passed, not a claim about unobserved wall-clock time.

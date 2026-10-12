@@ -305,3 +305,14 @@ worker-join의 표준입력으로 전달하는 방식입니다. 자체 인증정
 저장소에 보관하고 중앙에는 해시만 저장합니다. 응답 손실은 키 재사용 없이 저장된
 인증정보로 복구합니다. 에이전트 선택·철회는 관리자에서 처리합니다. 자세한 절차는
 `sacho help workers --language ko`에 임베딩되어 있습니다.
+
+Docker 모니터링: `sacho example docker`는 Unix 소켓 GET 조회를 사용하는 내장 Lua
+예제를 출력합니다. 선택한 실행 노드에 `DOCKER_SOCKET`, `DOCKER_CONTAINER`를
+인젝션하고 `probe_env`에 허용하세요. 조건은 `/healthy gte 1`, 공개 조회값은
+`/display`, 공개 설명 `public_message_pointer`는 `/message`로 설정합니다.
+Docker CLI는 필요 없습니다. 소켓 자체는 읽기 전용 마운트에서도 호스트 제어 권한을
+주므로 신뢰한 검사에만 허용하세요. 조회 실패 시 이전 수치는 시각과 함께 남고,
+이전 값도 없으면 조회 불가로 표시합니다. 선택한 설명만 공개하며 내부 오류와
+컨테이너 환경변수 원문은 공개하지 않습니다.
+잔량·수집기 검사는 `failure_status="degraded"`로 지정하면 조건 실패·오류·시간 초과를
+주의로 표시합니다. 기본값은 `outage`입니다. 새 선택 필드는 최신 워커와 함께 쓰세요.

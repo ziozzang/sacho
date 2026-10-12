@@ -30,12 +30,19 @@ pub struct CheckSpec {
     pub threshold: Option<f64>,
     pub degraded_ms: Option<u64>,
     pub failure_threshold: u32,
+    #[serde(skip_serializing_if = "default_failure_status")]
+    pub failure_status: String,
     pub recovery_threshold: u32,
     pub enabled: bool,
     pub publish_value: bool,
     pub metric_unit: String,
     pub display_pointer: String,
     pub display_label: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub public_message_pointer: String,
+}
+fn default_failure_status(value: &str) -> bool {
+    value == "outage"
 }
 impl Default for CheckSpec {
     fn default() -> Self {
@@ -57,17 +64,23 @@ impl Default for CheckSpec {
             threshold: None,
             degraded_ms: None,
             failure_threshold: 1,
+            failure_status: "outage".into(),
             recovery_threshold: 1,
             enabled: true,
             publish_value: false,
             metric_unit: String::new(),
             display_pointer: String::new(),
             display_label: String::new(),
+            public_message_pointer: String::new(),
         }
     }
 }
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            matches!(self.failure_status.as_str(), "outage" | "degraded"),
+            "failure status must be outage or degraded"
+        );
         ensure!(
             self.worker.is_empty() || crate::remote::valid_node(&self.worker),
             "invalid worker ID"
@@ -77,7 +90,8 @@ impl CheckSpec {
             "name required, up to 120 bytes"
         );
         ensure!(
-            self.display_label.len() <= 120
+            self.public_message_pointer.len() <= 1024
+                && self.display_label.len() <= 120
                 && self.display_pointer.len() <= 1024
                 && self.metric_unit.len() <= 20
                 && self.description.len() <= 2000
@@ -137,6 +151,10 @@ impl CheckSpec {
         ensure!(
             self.display_pointer.is_empty() || self.display_pointer.starts_with('/'),
             "display JSON pointer must start with /"
+        );
+        ensure!(
+            self.public_message_pointer.is_empty() || self.public_message_pointer.starts_with('/'),
+            "public message JSON pointer must start with /"
         );
         ensure!(
             self.json_pointer.is_empty() || self.json_pointer.starts_with('/'),
@@ -420,4 +438,14 @@ pub fn display_value(spec: &CheckSpec, output: &str) -> Option<String> {
             .take(160)
             .collect(),
     )
+}
+
+/// Only an explicitly selected JSON string is public; never expose raw errors.
+pub fn public_message(spec: &CheckSpec, output: &str) -> Option<String> {
+    if spec.public_message_pointer.is_empty() {
+        return None;
+    }
+    let value: Value = serde_json::from_str(output).ok()?;
+    let text = value.pointer(&spec.public_message_pointer)?.as_str()?;
+    Some(text.chars().filter(|c| !c.is_control()).take(240).collect())
 }

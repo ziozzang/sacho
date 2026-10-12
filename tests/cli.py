@@ -16,7 +16,7 @@ def main():
    assert run('setup-howto','--language',language).stdout==expected
   assert 'Run the status page' in run('help','serve').stdout
   run('help','nonexistent',ok=False);run('help','setup','--language','invalid',ok=False)
-  for name in ('prometheus','postgresql','external-command'):
+  for name in ('prometheus','postgresql','external-command','docker'):
    assert run('example',name).stdout==(ROOT/f'examples/lua/{name}.lua').read_text()
   assert not (directory/'sacho.db').exists()
   vault=directory/'vault.enc';key=directory/'unlock.key';paths=['--vault',str(vault),'--key-file',str(key)]

@@ -120,9 +120,9 @@ fn install_inner(lua: &Lua) -> mlua::Result<()> {
         "http",
         lua.create_function(move |lua, options: mlua::Value| {
             let started = Instant::now();
-            let (url, method, headers, body) = match options {
+            let (url, method, headers, body, unix_socket) = match options {
                 mlua::Value::String(url) => {
-                    (url.to_str()?.to_string(), "GET".to_string(), None, None)
+                    (url.to_str()?.to_string(), "GET".to_string(), None, None, None)
                 }
                 mlua::Value::Table(t) => (
                     t.get::<String>("url")?,
@@ -130,6 +130,7 @@ fn install_inner(lua: &Lua) -> mlua::Result<()> {
                         .unwrap_or_else(|| "GET".into()),
                     t.get::<Option<mlua::Table>>("headers")?,
                     t.get::<Option<String>>("body")?,
+                    t.get::<Option<String>>("unix_socket")?,
                 ),
                 _ => return Err(err("http expects a URL or options table")),
             };
@@ -140,10 +141,19 @@ fn install_inner(lua: &Lua) -> mlua::Result<()> {
             {
                 return Err(err("HTTP(S) URL without credentials required"));
             }
-            let client = reqwest::blocking::Client::builder()
+            let builder = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(timeout))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
+                .redirect(reqwest::redirect::Policy::none());
+            let builder = if let Some(path) = unix_socket {
+                if method != "GET" || body.is_some() || url.scheme() != "http" || url.host_str() != Some("localhost") || !std::path::Path::new(&path).is_absolute() || path.len() > 4096 {
+                    return Err(err("Unix socket HTTP requires GET, no body, http://localhost and an absolute socket path"));
+                }
+                #[cfg(unix)]
+                { builder.no_proxy().unix_socket(path) }
+                #[cfg(not(unix))]
+                { return Err(err("Unix socket HTTP is unsupported on this platform")); }
+            } else { builder };
+            let client = builder.build()
                 .map_err(|_| err("HTTP client failed"))?;
             let method = reqwest::Method::from_bytes(method.as_bytes())
                 .map_err(|_| err("invalid HTTP method"))?;

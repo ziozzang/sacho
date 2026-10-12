@@ -225,7 +225,7 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
                 output.pop();
             }
             let status = if !detail.is_empty() {
-                "outage"
+                item.spec.failure_status.as_str()
             } else if item
                 .spec
                 .degraded_ms
@@ -235,7 +235,7 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
             } else {
                 "operational"
             };
-            let detail = if status == "degraded" {
+            let detail = if status == "degraded" && detail.is_empty() {
                 "response time exceeded degraded threshold".into()
             } else {
                 detail
@@ -248,13 +248,13 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
             }
         }
         Ok(Err(error)) => Observation {
-            status: "outage".into(),
+            status: item.spec.failure_status.clone(),
             latency_ms,
             output: String::new(),
             detail: safe_error(&error, item),
         },
         Err(_) => Observation {
-            status: "outage".into(),
+            status: item.spec.failure_status.clone(),
             latency_ms,
             output: String::new(),
             detail: format!("probe timed out after {}s", item.spec.timeout_seconds),

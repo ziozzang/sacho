@@ -149,3 +149,8 @@ sacho secrets --help
 선택 목록에서 지정할 수 있습니다. `sacho worker-join --config worker.toml`은
 키를 표준입력으로 받아 자체 인증정보를 암호화 저장하고 중앙 정보와 교환합니다.
 중앙은 해시만 보관하며 등록 응답 손실 복구와 즉시 권한 철회를 지원합니다.
+
+Docker 컨테이너는 `sacho example docker`의 내장 Lua 예제로 Unix 소켓을 통해 조회할
+수 있습니다. 별도 Docker CLI 없이 실행·중지·헬스체크 상태를 검사합니다.
+조회 실패 시에도 마지막 수치와 시각이 남으며, 공개 설명과 주의 등급을 설정할 수
+있습니다. 자세한 설정은 [Lua 문서](docs/LUA.ko.md)를 참조하세요.
