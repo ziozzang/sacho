@@ -6,7 +6,58 @@ can keep using embedded SQLite; remote workers require neither a database nor an
 inbound port. Multi-controller HA is deferred. This is monitoring only; incident
 management stays in external webhook receivers.
 
-## Controller registration
+## Preferred: one-time bootstrap enrollment
+
+In **Admin → Agents**, choose a node ID, lifetime and script permission, then
+create a bootstrap key. The key is scoped to that node, expires, and can register
+only once. It is shown in that response only. Issuing a replacement invalidates
+older pending keys for the node. No controller restart or remote_workers entry is
+needed for this mode.
+
+Create the worker configuration with `sacho example remote-worker > worker.toml`.
+Set its controller origin, matching node ID and optional label; keep probe input
+references on the worker. Join using the key via stdin, never an argument:
+
+```sh
+read -rs sacho_bootstrap_input
+printf '%s' "$sacho_bootstrap_input" | sacho worker-join --config worker.toml
+unset sacho_bootstrap_input
+sacho worker --config worker.toml
+```
+
+Paste the key into the hidden read input and press Enter. The shell history
+contains the commands, not the key. Do not echo the literal key into a shell
+command. The join command provisions a local encrypted vault if none is configured;
+otherwise it keeps existing vault entries and adds the node credential. Vault/key
+paths and controller identity are written atomically to the worker configuration.
+Admission credentials are never included in probe_env.
+
+The worker generates its own long-lived credential and persists it before
+redemption. It sends the credential hash plus its label, binary version, platform
+and reported script capability. The controller stores hashes only and returns its
+identity, canonical URL, version and granted capability. The worker keeps the
+operator-specified connection URL, pins the returned identity and preserves its
+local probe inputs. HTTPS certificate validation remains server authentication;
+the identity guard catches accidental controller/restore changes and is not a
+replacement for TLS or a public-key authentication protocol.
+
+If registration commits but the reply/config promotion fails, rerun
+`sacho worker-join --config worker.toml` without a key. The saved node credential
+recovers the registration through an authenticated status request; the bootstrap
+key itself is never replayed. Do not delete the pending encrypted credential to
+retry. Conflicting environment overrides are rejected before consuming a key.
+Concurrent joins for one config are locked, and concurrent key redemption has
+one winner.
+
+Registered nodes appear in **Admin → Agents** and the monitor
+**Execution location** dropdown. Revoking a bootstrapped agent immediately blocks
+claims/results and invalidates its pending assignments/invitations. Re-enrollment
+uses a fresh invitation and rotates the revoked credential; old credentials stay
+rejected. Choosing a node cannot exceed the permission granted by the invitation.
+Registration metadata is private and records enrollment-time information, not a
+live heartbeat. Labels and values for probes remain owned by each worker.
+
+## Legacy manual controller registration
 
 Add a unique node ID and a private token reference to the controller configuration:
 
@@ -55,7 +106,9 @@ supervised updates remain a controller feature.
 ## Assigning checks
 
 In the monitor editor, **Execution location** accepts a registered worker ID and
-suggests configured IDs. Leave it empty for local execution. The administrator list
+lists active registered agents. Choose **Local server** for local execution.
+Unavailable/revoked selections are preserved rather than silently changing to
+local execution. The administrator list
 shows the execution location. **Run now** makes a saved check due for its worker;
 remote checks are never silently run on the controller.
 
@@ -117,7 +170,9 @@ python3 tests/remote_docker.py
 python3 tests/storage_docker.py
 ```
 
-The remote Docker test owns an isolated network, unprivileged static-binary
+Run `python3 tests/enrollment.py` for one-use/expiry/concurrent admission, lost
+response recovery, encrypted local persistence, permissions and revocation; the
+browser suite exercises key issuance and agent selection. The remote Docker test owns an isolated network, unprivileged static-binary
 containers and temporary fixture data. It verifies two network locations, local
 injected inputs, credential/protocol rejection, duplicate result handling,
 paused-worker takeover/stale rejection, disconnect/reconnect and controller

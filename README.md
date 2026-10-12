@@ -198,3 +198,9 @@ sacho secrets --help
 In Admin → Notifications, Jinja-style email subject/body and optional webhook JSON
 templates support preview without delivery. The setup runbook lists the API and
 variables. Credentials are excluded from template context.
+
+Agents can enroll through node-bound one-use bootstrap keys in admin.
+`sacho worker-join --config worker.toml` reads the key from stdin, stores its own
+credential encrypted and exchanges registration metadata with the controller.
+Select registered agents per monitor; recover lost replies and revoke access
+without restarting the controller. The controller retains hashes only.

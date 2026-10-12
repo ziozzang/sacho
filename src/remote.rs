@@ -1,6 +1,6 @@
 //! Single-controller, outbound-only remote monitoring workers.
 use crate::{
-    config::{Config, RemoteWorker, Secrets},
+    config::{Config, Secrets},
     db::{self, CheckSpec, Item, Observation},
 };
 use anyhow::{Context, Result, ensure};
@@ -8,6 +8,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::post,
 };
 use rusqlite::{OptionalExtension, params};
@@ -52,33 +53,80 @@ type RemoteResult<T> = std::result::Result<Json<T>, (StatusCode, Json<serde_json
 fn error(status: StatusCode, message: &str) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(serde_json::json!({"error": message})))
 }
-fn authorize<'a>(
-    cfg: &'a Config,
+pub fn node_permission(
+    conn: &rusqlite::Connection,
+    cfg: &Config,
+    node: &str,
+) -> Result<Option<bool>> {
+    if let Some(worker) = cfg.remote_workers.iter().find(|w| w.id == node) {
+        return Ok(Some(worker.allow_scripts));
+    }
+    Ok(crate::enrollment::node(conn, node)?
+        .filter(|n| !n.revoked)
+        .map(|n| n.allow_scripts))
+}
+fn authorize(
+    conn: &rusqlite::Connection,
+    cfg: &Config,
     node: &str,
     headers: &HeaderMap,
-) -> std::result::Result<&'a RemoteWorker, (StatusCode, Json<serde_json::Value>)> {
-    let worker = cfg
-        .remote_workers
-        .iter()
-        .find(|w| w.id == node)
-        .ok_or_else(|| error(StatusCode::UNAUTHORIZED, "Worker authentication required"))?;
+) -> std::result::Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    let denied = || error(StatusCode::UNAUTHORIZED, "Worker authentication required");
+    if !valid_node(node) {
+        return Err(denied());
+    }
     let supplied = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let expected = cfg
-        .environment(&worker.token_env)
-        .map_err(|_| error(StatusCode::UNAUTHORIZED, "Worker authentication required"))?;
-    if supplied.len() > 512
-        || Sha256::digest(supplied.as_bytes()) != Sha256::digest(expected.as_bytes())
-    {
-        return Err(error(
-            StatusCode::UNAUTHORIZED,
-            "Worker authentication required",
-        ));
+    if !(32..=512).contains(&supplied.len()) {
+        return Err(denied());
     }
-    Ok(worker)
+    let (expected, allow_scripts) =
+        if let Some(worker) = cfg.remote_workers.iter().find(|w| w.id == node) {
+            (
+                crate::enrollment::hash(&cfg.environment(&worker.token_env).map_err(|_| denied())?),
+                worker.allow_scripts,
+            )
+        } else {
+            let record = crate::enrollment::node(conn, node)
+                .map_err(|_| denied())?
+                .filter(|n| !n.revoked)
+                .ok_or_else(denied)?;
+            (record.token_hash, record.allow_scripts)
+        };
+    if crate::enrollment::hash(supplied) != expected {
+        return Err(denied());
+    }
+    if let Some(expected) = headers
+        .get("x-sacho-controller-id")
+        .and_then(|v| v.to_str().ok())
+        && crate::enrollment::controller_id(conn).map_err(|_| denied())? != expected
+    {
+        return Err(denied());
+    }
+    Ok(allow_scripts)
+}
+type RemoteResponse = std::result::Result<Response, (StatusCode, Json<serde_json::Value>)>;
+fn response(conn: &rusqlite::Connection, value: impl Serialize) -> RemoteResponse {
+    let identity = crate::enrollment::controller_id(conn).map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Controller identity unavailable",
+        )
+    })?;
+    let mut response = Json(value).into_response();
+    response.headers_mut().insert(
+        "x-sacho-controller-id",
+        identity.parse().map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Controller identity unavailable",
+            )
+        })?,
+    );
+    Ok(response)
 }
 
 pub fn claim(
@@ -200,62 +248,148 @@ pub fn router() -> Router<crate::server::App> {
     Router::new()
         .route("/api/workers/{node}/claim", post(claim_handler))
         .route("/api/workers/{node}/result", post(result_handler))
+        .route("/api/workers/enroll", post(enroll_handler))
+        .route(
+            "/api/workers/{node}/registration",
+            post(registration_handler),
+        )
 }
 async fn claim_handler(
     State(app): State<crate::server::App>,
     Path(node): Path<String>,
     headers: HeaderMap,
     Json(request): Json<Claim>,
-) -> RemoteResult<Option<Assignment>> {
-    let worker = authorize(&app.cfg, &node, &headers)?;
+) -> RemoteResponse {
+    let mut conn = app.db.lock().unwrap();
+    let allow_scripts = authorize(&conn, &app.cfg, &node, &headers)?;
     if request.protocol != 1 {
         return Err(error(
             StatusCode::BAD_REQUEST,
             "Unsupported worker protocol",
         ));
     }
-    let result = claim(
-        &mut app.db.lock().unwrap(),
-        &node,
-        worker.allow_scripts && request.allow_scripts,
-    )
-    .map_err(|_| {
+    let result = claim(&mut conn, &node, allow_scripts && request.allow_scripts).map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Worker assignment unavailable",
         )
     })?;
-    Ok(Json(result))
+    response(&conn, result)
 }
 async fn result_handler(
     State(app): State<crate::server::App>,
     Path(node): Path<String>,
     headers: HeaderMap,
     Json(result): Json<Completion>,
-) -> RemoteResult<serde_json::Value> {
-    let worker = authorize(&app.cfg, &node, &headers)?;
-    let accepted = complete(
-        &mut app.db.lock().unwrap(),
-        &node,
-        worker.allow_scripts,
-        &result,
-    )
-    .map_err(|_| error(StatusCode::BAD_REQUEST, "Invalid worker result"))?;
+) -> RemoteResponse {
+    let mut conn = app.db.lock().unwrap();
+    let allow_scripts = authorize(&conn, &app.cfg, &node, &headers)?;
+    let accepted = complete(&mut conn, &node, allow_scripts, &result)
+        .map_err(|_| error(StatusCode::BAD_REQUEST, "Invalid worker result"))?;
     if !accepted {
         return Err(error(
             StatusCode::CONFLICT,
             "Expired or stale worker result",
         ));
     }
-    Ok(Json(serde_json::json!({"accepted":true})))
+    response(&conn, serde_json::json!({"accepted":true}))
 }
 
-#[derive(Deserialize)]
+async fn enroll_handler(
+    State(app): State<crate::server::App>,
+    headers: HeaderMap,
+    Json(request): Json<crate::enrollment::JoinRequest>,
+) -> RemoteResult<crate::enrollment::Registration> {
+    let key = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+    if app
+        .cfg
+        .remote_workers
+        .iter()
+        .any(|n| n.id == request.node_id)
+    {
+        return Err(error(
+            StatusCode::CONFLICT,
+            "Node uses static configuration",
+        ));
+    }
+    if app.cfg.remote_workers.iter().any(|worker| {
+        app.cfg
+            .environment(&worker.token_env)
+            .is_ok_and(|token| crate::enrollment::hash(&token) == request.token_hash)
+    }) {
+        return Err(error(
+            StatusCode::CONFLICT,
+            "Credential already belongs to another worker",
+        ));
+    }
+    let mut conn = app.db.lock().unwrap();
+    if let Some(expected) = headers
+        .get("x-sacho-controller-id")
+        .and_then(|v| v.to_str().ok())
+        && crate::enrollment::controller_id(&conn).map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Controller identity unavailable",
+            )
+        })? != expected
+    {
+        return Err(error(StatusCode::CONFLICT, "Controller identity changed"));
+    }
+    let result = crate::enrollment::redeem(&mut conn, key, &request, &app.cfg.public_url)
+        .map_err(|_| error(StatusCode::UNAUTHORIZED, "Bootstrap enrollment rejected"))?;
+    Ok(Json(result))
+}
+async fn registration_handler(
+    State(app): State<crate::server::App>,
+    Path(node): Path<String>,
+    headers: HeaderMap,
+) -> RemoteResult<crate::enrollment::Registration> {
+    let conn = app.db.lock().unwrap();
+    if let Ok(Some(record)) = crate::enrollment::node(&conn, &node) {
+        let token = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .unwrap_or("");
+        if record.revoked && crate::enrollment::hash(token) == record.token_hash {
+            if let Some(expected) = headers
+                .get("x-sacho-controller-id")
+                .and_then(|v| v.to_str().ok())
+                && crate::enrollment::controller_id(&conn).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Controller identity unavailable",
+                    )
+                })? != expected
+            {
+                return Err(error(StatusCode::CONFLICT, "Controller identity changed"));
+            }
+            return Err(error(StatusCode::GONE, "Worker credential revoked"));
+        }
+    }
+    authorize(&conn, &app.cfg, &node, &headers)?;
+    let record = crate::enrollment::node(&conn, &node)
+        .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "Registration unavailable"))?
+        .filter(|n| !n.revoked)
+        .ok_or_else(|| error(StatusCode::CONFLICT, "Node uses static configuration"))?;
+    let result = crate::enrollment::registration(&conn, &record, &app.cfg.public_url)
+        .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "Registration unavailable"))?;
+    Ok(Json(result))
+}
+
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkerConfig {
     pub control_url: String,
     pub node_id: String,
     pub token_env: String,
+    pub controller_id: Option<String>,
+    #[serde(default)]
+    pub label: String,
     #[serde(default)]
     pub probe_env: Vec<String>,
     pub secrets: Option<Secrets>,
@@ -265,8 +399,7 @@ pub struct WorkerConfig {
     #[serde(default)]
     pub allow_insecure_http: bool,
 }
-pub async fn run(path: &FilePath) -> Result<()> {
-    let worker: WorkerConfig = toml::from_str(&std::fs::read_to_string(path)?)?;
+pub(crate) fn worker_client(worker: &WorkerConfig) -> Result<reqwest::Client> {
     ensure!(valid_node(&worker.node_id), "invalid node ID");
     let url = reqwest::Url::parse(&worker.control_url)?;
     ensure!(
@@ -289,6 +422,24 @@ pub async fn run(path: &FilePath) -> Result<()> {
             || (url.scheme() == "http" && (loopback || worker.allow_insecure_http)),
         "remote controller requires HTTPS"
     );
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(identity) = &worker.controller_id {
+        Uuid::parse_str(identity)?;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-sacho-controller-id", identity.parse()?);
+        builder = builder.default_headers(headers);
+    }
+    if let Some(ca) = &worker.ca_file {
+        builder =
+            builder.add_root_certificate(reqwest::Certificate::from_pem(&std::fs::read(ca)?)?);
+    }
+    Ok(builder.build()?)
+}
+pub async fn run(path: &FilePath) -> Result<()> {
+    let worker: WorkerConfig = toml::from_str(&std::fs::read_to_string(path)?)?;
+    let client = worker_client(&worker)?;
     let mut cfg = Config {
         probe_env: worker.probe_env,
         secrets: worker.secrets,
@@ -310,14 +461,6 @@ pub async fn run(path: &FilePath) -> Result<()> {
         (32..=512).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_graphic()),
         "invalid worker token"
     );
-    let mut builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none());
-    if let Some(ca) = worker.ca_file {
-        builder =
-            builder.add_root_certificate(reqwest::Certificate::from_pem(&std::fs::read(ca)?)?);
-    }
-    let client = builder.build()?;
     let base = worker.control_url.trim_end_matches('/');
     let mut stop = crate::supervisor::shutdown_listener()?;
     let work = async {
@@ -347,6 +490,16 @@ pub async fn run(path: &FilePath) -> Result<()> {
                     continue;
                 }
             };
+            if let Some(expected) = &worker.controller_id {
+                ensure!(
+                    response
+                        .headers()
+                        .get("x-sacho-controller-id")
+                        .and_then(|v| v.to_str().ok())
+                        == Some(expected.as_str()),
+                    "controller identity changed"
+                );
+            }
             let mut body = Vec::new();
             let mut read_failed = false;
             loop {

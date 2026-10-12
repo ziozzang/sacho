@@ -156,3 +156,22 @@ UUIDs so retention cannot reuse their identity. Actual Docker control/worker tes
 qualify location-specific Lua inputs, scoped authentication, duplicate/stale results,
 paused-worker takeover, network reconnect and controller restart. Multi-controller
 HA and supervised worker updates remain deferred.
+
+## Bootstrap enrollment increment
+
+One-time, expiring node-bound invitations are minted in the protected admin Agents
+view. Redemption and dynamic node registration commit atomically using the existing
+settings store; no new service or database schema is introduced. The controller
+keeps only secret hashes. Workers persist credentials in the local encrypted vault
+before redemption, exchange label/version/platform and granted capability metadata,
+and atomically pin controller identity in their own config. The identity guard is
+not an alternative to HTTPS certificate authentication.
+
+Authenticated registration recovery handles lost responses without bootstrap
+replay. Revocation is immediate, clears pending ownership and invitations, and
+re-enrollment rotates the revoked credential. Registered nodes populate the
+monitor execution dropdown; unavailable selections never silently become local.
+Legacy static tokens remain compatible. Tests cover concurrent redemption, expiry,
+wrong node, replay, hash-only central persistence, lost-response recovery, encrypted
+worker storage, capability ceilings, GUI issuance/selection/revocation and actual
+Docker bootstrap-to-probe execution. No incident-management functionality is added.

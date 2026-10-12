@@ -1,3 +1,6 @@
+# Preferred: issue a key in Admin → Agents, then feed it through stdin to:
+# sacho worker-join --config worker.toml
+# Join provisions encrypted node credentials and pins the controller identity.
 # Export with: sacho example remote-worker
 control_url = "https://status.example.com"
 node_id = "edge-west"

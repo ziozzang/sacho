@@ -97,6 +97,22 @@ allow_insecure_http=true
                 return {item['id']:item['display_value'] for item in request('/api/status')['items']}
             wait(lambda:values().get(ids['edge-a'])=='edge-a' and values().get(ids['edge-b'])=='edge-b')
             assert request('/api/incidents')==[], 'remote-only inputs must never execute on controller'
+            invitation=request('/api/admin/worker-bootstrap',{'id':'edge-new','allow_scripts':True,'ttl_seconds':300})
+            work=directory/'bootstrap-worker';work.mkdir();work.chmod(0o700)
+            bootstrap_cfg=work/'worker.toml';bootstrap_cfg.write_text('control_url="http://control:8080"\nnode_id="edge-new"\nlabel="Bootstrap worker"\ntoken_env="SACHO_JOIN_TOKEN"\nprobe_env=["LOCATION"]\nallow_scripts=true\nallow_insecure_http=true\n')
+            join_name=name+'-join';containers.append(join_name)
+            subprocess.run(['docker','run','--rm','-i','--name',join_name,'--network',network,'--user',f'{os.getuid()}:{os.getgid()}',
+                '--read-only','--tmpfs','/tmp:rw,nosuid,noexec','--cap-drop','ALL','--security-opt','no-new-privileges',
+                '-v',f'{BINARY}:/sacho:ro','-v',f'{work}:/work:rw','--entrypoint','/sacho','alpine:3',
+                'worker-join','--config','/work/worker.toml'],input=invitation['bootstrap_key'],text=True,capture_output=True,check=True)
+            joined=name+'-enrolled';containers.append(joined)
+            docker('run','-d','--name',joined,'--network',network,'--user',f'{os.getuid()}:{os.getgid()}',
+                '--read-only','--tmpfs','/tmp:rw,nosuid,noexec','--cap-drop','ALL','--security-opt','no-new-privileges',
+                '-v',f'{BINARY}:/sacho:ro','-v',f'{work}:/work:ro','-e','LOCATION=edge-new',
+                '--entrypoint','/sacho','alpine:3','worker','--config','/work/worker.toml')
+            enrolled_id=add('edge-new',source,'Bootstrap check')
+            wait(lambda:values().get(enrolled_id)=='edge-new')
+            assert next(n for n in request('/api/admin/workers') if n['id']=='edge-new')['label']=='Bootstrap worker'
             # Verify duplicate result handling through the actual HTTP endpoint.
             docker('pause',a)
             second=add('edge-a',source,'Retry fixture')
@@ -143,7 +159,7 @@ allow_insecure_http=true
             wait(lambda:any(i['id']==ids['edge-b'] and i['last_check'] is not None and i['last_check']!=old_at for i in request('/api/admin/items')))
             print('PASS: static controller + remote Docker workers, node isolation, local secret injection, '
                   'authentication/protocol rejection, duplicate results, lease takeover/stale rejection, '
-                  'network reconnect and controller restart')
+                  'network reconnect, controller restart and one-time bootstrap/encrypted registered worker')
         finally:
             for container in reversed(containers):
                 docker('unpause',container,check=False)

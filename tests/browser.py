@@ -19,7 +19,7 @@ def main():
     browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1440,'height':1100},locale='en-US')
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     page.add_init_script("localStorage.setItem('sacho-language','en')")
-    page.goto(base+'/admin');page.get_by_role('button',name='+ Add service',exact=True).click();page.locator('[name=worker]').fill('edge-test');expect(page.locator('#test-draft')).to_be_disabled();expect(page.locator('.test-help')).to_contain_text('Remote checks');page.locator('[name=worker]').fill('');expect(page.locator('#test-draft')).to_be_enabled()
+    page.goto(base+'/admin');page.get_by_role('button',name='+ Add service',exact=True).click();page.locator('[name=worker]').select_option('edge-test');expect(page.locator('#test-draft')).to_be_disabled();expect(page.locator('.test-help')).to_contain_text('Remote checks');page.locator('[name=worker]').select_option('');expect(page.locator('#test-draft')).to_be_enabled()
     page.locator('[name=name]').fill('Gateway scenario');page.locator('[name=group]').fill('Infrastructure');page.locator('[name=kind]').select_option('lua');page.locator('[name=interval_seconds]').fill('5');page.locator('[name=timeout_seconds]').fill('3')
     editor=page.locator('.sacho-lua-editor .cm-content');editor.wait_for()
     editor.fill('return sacho.json_encode({version="v0.1.0",tps=42.5})')
@@ -60,12 +60,22 @@ def main():
     page.locator('#subscribe-open').evaluate('(button)=>button.disabled=false');page.locator('#subscribe-open').click();assert page.locator('#subscribe-form [name=email]').input_value()=='reader@example.com'
     page.goto(base+'/admin')
     page.get_by_role('button',name='+ Add service',exact=True).click()
-    page.locator('[name=name]').fill('Remote UI fixture');page.locator('[name=target]').fill('https://example.com/health');page.locator('[name=worker]').fill('edge-test')
+    page.locator('[name=name]').fill('Remote UI fixture');page.locator('[name=target]').fill('https://example.com/health');page.locator('[name=worker]').select_option('edge-test')
     expect(page.locator('#test-draft')).to_be_disabled()
     page.get_by_role('button',name='Save service',exact=True).click();page.locator('#edit-dialog').wait_for(state='hidden')
     remote=next(item for item in request('/api/admin/items') if item['spec']['name']=='Remote UI fixture')
     assert remote['spec']['worker']=='edge-test' and remote['last_check'] is None
     expect(page.locator('.admin-item').filter(has_text='Remote UI fixture')).to_contain_text('edge-test')
+    page.get_by_role('button',name='Agents',exact=True).click()
+    page.locator('#bootstrap-form [name=node_id]').fill('edge-enrolled');page.get_by_role('button',name='Create bootstrap key',exact=True).click()
+    key_field=page.get_by_role('textbox',name='One-time bootstrap key',exact=True);key_field.wait_for();bootstrap=key_field.input_value();assert len(bootstrap)==64
+    join_config=tmp/'joined-worker.toml';join_config.write_text(f'control_url="{base}"\nnode_id="edge-enrolled"\nlabel="Browser agent"\ntoken_env="SACHO_BROWSER_ENROLL_TOKEN"\n')
+    subprocess.run([str(BINARY),'worker-join','--config',str(join_config)],input=bootstrap,text=True,capture_output=True,check=True)
+    page.get_by_role('button',name='Hide key',exact=True).click();expect(key_field).to_have_count(0)
+    expect(page.locator('#admin-content')).to_contain_text('Browser agent')
+    page.get_by_role('button',name='+ Add service',exact=True).click();expect(page.locator('[name=worker]')).to_contain_text('Browser agent')
+    page.locator('[name=worker]').select_option('edge-enrolled');expect(page.locator('#test-draft')).to_be_disabled();page.locator('[data-close="edit-dialog"]').click()
+    page.once('dialog',lambda dialog:dialog.accept());page.get_by_role('button',name='Revoke agent',exact=True).click();expect(page.locator('#admin-content')).to_contain_text('Revoked')
     assert not errors,errors
     browser.close()
     print('PASS: embedded Lua editor, language draft preservation, test/save, version/TPS display, drag/drop persistence, preview, automatic 1h resolution, 5s chart and Korean mobile layout')

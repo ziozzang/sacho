@@ -17,3 +17,6 @@ __pycache__/
 
 *.enc
 *.vault
+
+/worker.toml
+*.join.lock

@@ -120,6 +120,8 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/webhooks/{id}", delete(delete_webhook))
         .route("/api/admin/notifications", get(notifications))
         .route("/api/admin/workers", get(workers))
+        .route("/api/admin/worker-bootstrap", post(create_bootstrap))
+        .route("/api/admin/workers/{node}", delete(revoke_worker))
         .route_layer(middleware::from_fn_with_state(app.clone(), admin_auth));
     Router::new().merge(admin).merge(crate::remote::router())
         .route("/",get(index)).route("/admin",get(index)).route("/admin/",get(index))
@@ -312,18 +314,74 @@ async fn workers(State(app): State<App>) -> ApiResult<Json<Value>> {
         let last_result = assigned.iter().filter_map(|item| item.last_check).max();
         nodes.push(json!({"id":worker.id,"allow_scripts":worker.allow_scripts,"monitors":assigned.len(),"last_result":last_result}));
     }
+    for worker in crate::enrollment::nodes(&conn)? {
+        if app
+            .cfg
+            .remote_workers
+            .iter()
+            .any(|node| node.id == worker.id)
+        {
+            continue;
+        }
+        let assigned: Vec<_> = items
+            .iter()
+            .filter(|item| item.spec.worker == worker.id)
+            .collect();
+        nodes.push(json!({"id":worker.id,"label":worker.label,"allow_scripts":worker.allow_scripts,"monitors":assigned.len(),"last_result":assigned.iter().filter_map(|item|item.last_check).max(),"registered_at":worker.registered_at,"version":worker.version,"platform":worker.platform,"revoked":worker.revoked,"source":"bootstrap"}));
+    }
     Ok(Json(json!(nodes)))
 }
-fn validate_worker(cfg: &Config, spec: &CheckSpec) -> ApiResult<()> {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BootstrapDraft {
+    id: String,
+    #[serde(default)]
+    allow_scripts: bool,
+    ttl_seconds: i64,
+}
+async fn create_bootstrap(
+    State(app): State<App>,
+    Json(draft): Json<BootstrapDraft>,
+) -> ApiResult<Json<Value>> {
+    if app
+        .cfg
+        .remote_workers
+        .iter()
+        .any(|node| node.id == draft.id)
+    {
+        return Err(bad("This node uses static configuration"));
+    }
+    let (key, expires) = crate::enrollment::invite(
+        &mut app.db.lock().unwrap(),
+        &draft.id,
+        draft.allow_scripts,
+        draft.ttl_seconds,
+    )?;
+    Ok(Json(
+        json!({"bootstrap_key":key,"node_id":draft.id,"expires_at":expires,"control_url":app.cfg.public_url}),
+    ))
+}
+async fn revoke_worker(State(app): State<App>, Path(node): Path<String>) -> ApiResult<Json<Value>> {
+    if app
+        .cfg
+        .remote_workers
+        .iter()
+        .any(|worker| worker.id == node)
+    {
+        return Err(bad(
+            "Remove statically configured nodes from server configuration",
+        ));
+    }
+    crate::enrollment::revoke(&mut app.db.lock().unwrap(), &node)?;
+    Ok(Json(json!({"revoked":true})))
+}
+fn validate_worker(conn: &rusqlite::Connection, cfg: &Config, spec: &CheckSpec) -> ApiResult<()> {
     if spec.worker.is_empty() {
         return Ok(());
     }
-    let worker = cfg
-        .remote_workers
-        .iter()
-        .find(|worker| worker.id == spec.worker)
-        .ok_or_else(|| bad("Worker is not registered in server configuration"))?;
-    if spec.kind != "http" && !worker.allow_scripts {
+    let allow_scripts = crate::remote::node_permission(conn, cfg, &spec.worker)?
+        .ok_or_else(|| bad("Worker is not registered"))?;
+    if spec.kind != "http" && !allow_scripts {
         return Err(bad("This worker is not allowed to execute scripts"));
     }
     Ok(())
@@ -333,7 +391,7 @@ async fn create_item(
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
-    validate_worker(&app.cfg, &spec)?;
+    validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
     let id = db::save(&mut app.db.lock().unwrap(), None, &spec)?;
     Ok(Json(json!({"id":id})))
 }
@@ -343,7 +401,7 @@ async fn update_item(
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
-    validate_worker(&app.cfg, &spec)?;
+    validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
     db::save(&mut app.db.lock().unwrap(), Some(id), &spec)?;
     Ok(Json(json!({"ok":true})))
 }

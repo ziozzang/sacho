@@ -80,6 +80,11 @@ enum DatabaseAction {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Enroll once using a bootstrap key read from stdin; retry recovers registration
+    WorkerJoin {
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Run an outbound-only remote monitoring worker
     Worker {
         #[arg(long)]
@@ -166,6 +171,7 @@ async fn main() -> Result<()> {
         ready_file: None,
     }) {
         Commands::Worker { config } => sacho::remote::run(&config).await?,
+        Commands::WorkerJoin { config } => sacho::worker_join::join(&config).await?,
         Commands::Database { action } => {
             let snapshot = match action {
                 DatabaseAction::ExportPostgres { url_env, output } => {

@@ -338,3 +338,9 @@ prints its configuration. Register per-node token references in remote_workers;
 assign a monitor's worker ID in the editor. Scripts require opt-in on both ends;
 inputs stay local to workers. Remote draft tests are unavailable, and saved checks
 never silently execute locally. Multi-controller HA remains deferred.
+
+Prefer bootstrap enrollment: issue a node-bound one-use key in Admin → Agents,
+then feed it to worker-join via stdin. The worker saves its own credential encrypted;
+the controller stores hashes only. Lost replies recover with that credential, not
+bootstrap replay. Select/revoke agents in admin. The complete procedure is embedded
+in `sacho help workers`. Keep the legacy static registration path compatible.
