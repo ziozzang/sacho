@@ -29,6 +29,11 @@ No Node.js, CDN, external database or Lua installation is needed to run it.
 Python checks optionally require `python3`; shell checks require `/bin/sh`.
 Configuration and the persistent SQLite database are separate runtime files.
 
+The development build adds verified SQLite/PostgreSQL snapshot transfer and
+PostgreSQL lease/fencing primitives. The serving backend remains SQLite and
+distributed workers are not yet enabled. See [persistence](docs/DATABASE.md)
+(`sacho help storage`) and the [enterprise implementation inventory](docs/architecture/ENTERPRISE.md).
+
 ## Capabilities
 
 - Public system status, per-service availability, incident history, responsive

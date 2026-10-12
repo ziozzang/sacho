@@ -42,7 +42,48 @@ enum SecretAction {
     Remove { name: String },
 }
 #[derive(Subcommand)]
+enum DatabaseAction {
+    /// Export PostgreSQL; connection URL is read from an environment variable
+    ExportPostgres {
+        #[arg(long, default_value = "SACHO_DATABASE_URL")]
+        url_env: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Restore into a new PostgreSQL sacho namespace and verify before commit
+    ImportPostgres {
+        #[arg(long, default_value = "SACHO_DATABASE_URL")]
+        url_env: String,
+        #[arg(long)]
+        input: PathBuf,
+    },
+    /// Export a consistent SQLite snapshot without overwriting a file
+    Export {
+        #[arg(long)]
+        database: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Restore and verify a snapshot into a new SQLite database
+    Import {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        database: PathBuf,
+    },
+    /// Validate the version and fingerprint of a portable snapshot
+    Verify {
+        #[arg(long)]
+        input: PathBuf,
+    },
+}
+#[derive(Subcommand)]
 enum Commands {
+    /// Portable database backup, restore and verification
+    Database {
+        #[command(subcommand)]
+        action: DatabaseAction,
+    },
     /// Print an embedded Lua data-source example
     Example {
         #[arg(value_enum)]
@@ -118,6 +159,45 @@ async fn main() -> Result<()> {
         worker: false,
         ready_file: None,
     }) {
+        Commands::Database { action } => {
+            let snapshot = match action {
+                DatabaseAction::ExportPostgres { url_env, output } => {
+                    let url = zeroize::Zeroizing::new(
+                        std::env::var(&url_env)
+                            .context("database URL environment variable is missing")?,
+                    );
+                    let pool = sacho::storage::postgres::connect(&url).await?;
+                    let snapshot = sacho::storage::postgres::capture(&pool).await?;
+                    sacho::storage::write(&snapshot, &output)?;
+                    pool.close().await;
+                    snapshot
+                }
+                DatabaseAction::ImportPostgres { url_env, input } => {
+                    let snapshot = sacho::storage::load(&input)?;
+                    let url = zeroize::Zeroizing::new(
+                        std::env::var(&url_env)
+                            .context("database URL environment variable is missing")?,
+                    );
+                    let pool = sacho::storage::postgres::connect(&url).await?;
+                    sacho::storage::postgres::import(&snapshot, &pool).await?;
+                    pool.close().await;
+                    snapshot
+                }
+                DatabaseAction::Export { database, output } => {
+                    sacho::storage::export_sqlite(&database, &output)?
+                }
+                DatabaseAction::Import { input, database } => {
+                    let snapshot = sacho::storage::load(&input)?;
+                    sacho::storage::import_sqlite(&snapshot, &database)?;
+                    snapshot
+                }
+                DatabaseAction::Verify { input } => sacho::storage::load(&input)?,
+            };
+            println!(
+                "{}",
+                serde_json::json!({"sha256": snapshot.sha256, "rows": snapshot.counts()})
+            );
+        }
         Commands::Secrets {
             action,
             vault,
@@ -169,6 +249,13 @@ async fn main() -> Result<()> {
             if matches!(topic.as_deref(), Some("setup" | "setup-howto")) {
                 use std::io::Write;
                 std::io::stdout().write_all(setup_guide(language).as_bytes())?;
+            } else if topic.as_deref() == Some("storage") {
+                use std::io::Write;
+                let guide = match language {
+                    GuideLanguage::En => include_str!("../docs/DATABASE.md"),
+                    GuideLanguage::Ko => include_str!("../docs/DATABASE.ko.md"),
+                };
+                std::io::stdout().write_all(guide.as_bytes())?;
             } else if topic.as_deref() == Some("licenses") {
                 use std::io::Write;
                 std::io::stdout().write_all(
@@ -179,7 +266,9 @@ async fn main() -> Result<()> {
                         "\n",
                         include_str!("../docs/licenses/rustcrypto-mit.txt"),
                         "\n",
-                        include_str!("../docs/licenses/zeroize-mit.txt")
+                        include_str!("../docs/licenses/zeroize-mit.txt"),
+                        "\n",
+                        include_str!("../docs/licenses/sqlx-mit.txt")
                     )
                     .as_bytes(),
                 )?;

@@ -35,6 +35,8 @@ tower-http = { version = "0.6", features = ["limit", "set-header", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+sqlx-core = { version = "0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki", "json"] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json"] }
 
 [dev-dependencies]
 rcgen = "0.14"

@@ -315,3 +315,13 @@ References: [Prometheus query API](https://prometheus.io/docs/prometheus/latest/
 [psql](https://www.postgresql.org/docs/current/app-psql.html),
 [libpq environment](https://www.postgresql.org/docs/current/libpq-envars.html),
 [RustCrypto encryption](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+
+Development storage tools: `sacho help storage` embeds the complete backup,
+restore and SQLite/PostgreSQL transfer guide. The CLI also provides `sacho database
+export --database ./data.db --output ./backup.json`, `database verify --input
+./backup.json`, and `database import --input ./backup.json --database ./restored.db`.
+Snapshots are private plaintext (including subscriber tokens), created mode 0600,
+never overwritten, and must stay outside Git/public paths. `import-postgres` and
+`export-postgres` read SACHO_DATABASE_URL privately from the environment. Serving
+still uses SQLite: do not switch a live config to PostgreSQL or enable distributed
+workers until runtime repository and worker qualification are completed.

@@ -278,3 +278,12 @@ SMTP/업데이트 활성 여부, 외부 의존성, 로컬 검증과 미확정 �
 [psql](https://www.postgresql.org/docs/current/app-psql.html),
 [libpq 환경변수](https://www.postgresql.org/docs/current/libpq-envars.html),
 [RustCrypto 암호화](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+
+개발 빌드의 `sacho help storage --language ko`에는 백업·복원·SQLite/PostgreSQL
+이전 안내가 임베딩되어 있습니다. `sacho database export --database ./data.db
+--output ./backup.json`, `database verify --input ./backup.json`, `database import
+--input ./backup.json --database ./restored.db`로 검증합니다. 스냅샷은 구독 토큰을
+포함하는 비공개 평문이며 0600으로 생성하고 기존 파일을 덮어쓰지 않습니다.
+Git·공개 경로에 넣지 마세요. `import-postgres`/`export-postgres`는 환경변수
+SACHO_DATABASE_URL로 접속합니다. 실행 저장소는 아직 SQLite이므로 운영 설정을
+PostgreSQL로 바꾸거나 분산 워커를 활성화하면 안 됩니다.

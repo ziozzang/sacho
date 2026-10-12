@@ -12,3 +12,7 @@ Local encrypted inputs use RustCrypto chacha20poly1305 0.10.1 (MIT) and zeroize
 (MIT). Notification rendering uses MiniJinja 2.24 (Apache-2.0). Their complete
 licenses are retained in [docs/licenses](docs/licenses) and embedded for
 `sacho help licenses`. These libraries do not add provider-specific clients.
+
+Native PostgreSQL migration and coordination use SQLx core/PostgreSQL 0.8.6 under
+the MIT license; its notice is retained in docs/licenses/sqlx-mit.txt and embedded
+in `sacho help licenses`. SQLite retains its existing bundled rusqlite driver.

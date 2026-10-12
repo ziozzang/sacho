@@ -1,5 +1,10 @@
 # Sacho · 사초
 
+개발 빌드에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL 작업 임대·펜싱
+기반을 추가했습니다. 실행 저장소는 아직 SQLite이며 분산 워커는 활성화하지 않았습니다.
+[저장소 안내](docs/DATABASE.ko.md)(`sacho help storage --language ko`)와
+[기업용 기능 구현 현황](docs/architecture/ENTERPRISE.md)을 참고하세요.
+
 공개 상태 페이지와 지속적인 헬스 체크를 제공하는 단일 실행 파일입니다.
 사초는 실록의 바탕이 되는 기록입니다. 서비스의 현재 상태와 장애·복구 이력을
 명확하게 기록합니다.
