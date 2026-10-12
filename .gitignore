@@ -11,3 +11,6 @@
 *.key
 __pycache__/
 /test-results/
+
+/TODO.md
+/tests/real_services.py

@@ -73,3 +73,5 @@ SHA-256·크기를 고정하고 버전 하향을 차단합니다. 사설 HTTPS �
 `SACHO_RELEASE_SIGNING_KEY`에 보관합니다. 공개키만 저장소에 커밋합니다.
 Cargo 버전과 일치하는 `v<버전>` 태그를 푸시하면 Linux/macOS x86_64/ARM64와
 Linux x86_64 musl 실행 파일을 빌드하고 서명된 매니페스트를 게시합니다.
+
+`/api/account` must use the same identity-stripping authentication proxy as the protected admin API. It reports only the authenticated email and its subscription state. Set `[auth].logout_url` to your proxy logout path (for Hopae, `/_hopae/logout`) to enable the logout link. A missing setting hides the link. Plain SMTP is supported only for loopback or private IPv4 relays.

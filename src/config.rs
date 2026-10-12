@@ -40,6 +40,7 @@ pub struct Auth {
     pub mode: String,
     pub email_header: String,
     pub admins: Vec<String>,
+    pub logout_url: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +75,7 @@ impl Default for Auth {
             mode: "no-auth".into(),
             email_header: "X-Forwarded-Email".into(),
             admins: vec![],
+            logout_url: None,
         }
     }
 }
@@ -124,6 +126,14 @@ impl Config {
             self.auth.mode == "no-auth" || self.auth.mode == "auth-proxy",
             "auth mode must be no-auth or auth-proxy"
         );
+        if let Some(url) = &self.auth.logout_url {
+            ensure!(
+                (url.starts_with('/') && !url.starts_with("//") && !url.contains('\\'))
+                    || reqwest::Url::parse(url)
+                        .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some()),
+                "logout_url must be a local absolute path or HTTPS URL"
+            );
+        }
         if self.auth.mode == "no-auth" {
             ensure!(
                 bind.ip().is_loopback(),
@@ -182,8 +192,9 @@ impl Config {
                         || smtp
                             .host
                             .parse::<std::net::IpAddr>()
-                            .is_ok_and(|ip| ip.is_loopback()),
-                    "plain SMTP is only allowed on loopback"
+                            .is_ok_and(|ip| ip.is_loopback()
+                                || matches!(ip, std::net::IpAddr::V4(v4) if v4.is_private())),
+                    "plain SMTP is only allowed on loopback or private IPv4 networks"
                 );
             }
             smtp.from.parse::<lettre::message::Mailbox>()?;

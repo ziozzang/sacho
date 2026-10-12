@@ -109,3 +109,5 @@ Linux/macOS x86_64/ARM64; a Linux x86_64 musl build provides a static executable
 The publish job signs each precise manifest with the native Sacho signer and
 uploads executables, manifests and SHA256SUMS. Unsigned/missing releases may be
 reported in metadata checks but cannot be installed by the server.
+
+`/api/account` must use the same identity-stripping authentication proxy as the protected admin API. It reports only the authenticated email and its subscription state. Set `[auth].logout_url` to your proxy logout path (for Hopae, `/_hopae/logout`) to enable the logout link. A missing setting hides the link. Plain SMTP is supported only for loopback or private IPv4 relays.

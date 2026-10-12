@@ -153,9 +153,8 @@ python3 -m pip install -r tests/requirements.txt
 python3 -m playwright install chromium
 python3 tests/browser.py
 python3 tests/restart.py
-# Optional, read-only integration with the operator's infrastructure:
+# Optional isolated integration against a Hangang executable:
 python3 tests/hangang_proxy.py
-python3 tests/real_services.py
 ```
 
 Set `SACHO_BINARY` when testing a release or cross-target build. `HANGANG_BINARY`

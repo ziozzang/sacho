@@ -120,6 +120,7 @@ pub fn router(app: App) -> Router {
         .route("/assets/lua-editor.js",get(lua_script)).route("/assets/lua-editor.css",get(lua_style))
         .route("/assets/app.js",get(script)).route("/assets/style.css",get(style))
         .route("/healthz",get(health))
+        .route("/api/account",get(account))
         .route("/api/status",get(status)).route("/api/history/{id}",get(history))
         .route("/api/incidents",get(public_incidents))
         .route("/api/subscribe",post(subscribe))
@@ -131,6 +132,33 @@ pub fn router(app: App) -> Router {
         .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(header::REFERRER_POLICY,axum::http::HeaderValue::from_static("no-referrer")))
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(header::CACHE_CONTROL,axum::http::HeaderValue::from_static("no-store")))
         .with_state(app)
+}
+async fn account(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let email = if app.cfg.auth.mode == "auth-proxy" {
+        headers
+            .get(&app.cfg.auth.email_header)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.trim().to_lowercase())
+            .filter(|v| valid_email(v))
+    } else {
+        None
+    };
+    let Some(email) = email else {
+        return Ok(Json(json!({"email":null})));
+    };
+    let verified: Option<bool> = app
+        .db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT verified FROM subscribers WHERE email=?",
+            [&email],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(Json(
+        json!({"email":email,"subscription":match verified {Some(true)=>"subscribed",Some(false)=>"pending",None=>"unsubscribed"},"logout_url":app.cfg.auth.logout_url}),
+    ))
 }
 async fn index() -> Response {
     let nonce = Uuid::new_v4().simple().to_string();

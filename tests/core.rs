@@ -330,3 +330,43 @@ fn lua_runtime_exposes_only_bounded_sacho_api() -> anyhow::Result<()> {
     assert!(sacho::engine::lua_probe("return sacho.env('GITHUB_TOKEN')").is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn account_reports_only_verified_proxy_identity_subscription() -> anyhow::Result<()> {
+    let app = app(true);
+    app.db.lock().unwrap().execute("INSERT INTO subscribers(id,email,token,verified,created_at) VALUES('a','reader@example.com','private-token',0,0)", [])?;
+    let router = router(app.clone());
+    for (identity, expected) in [
+        (None, None),
+        (Some("reader@example.com"), Some("pending")),
+        (Some("other@example.com"), Some("unsubscribed")),
+    ] {
+        let mut request = Request::builder().uri("/api/account");
+        if let Some(email) = identity {
+            request = request.header("X-Forwarded-Email", email);
+        }
+        let response = router.clone().oneshot(request.body(Body::empty())?).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4096).await?)?;
+        assert_eq!(body["email"].as_str(), identity);
+        assert_eq!(body["subscription"].as_str(), expected);
+        assert!(!body.to_string().contains("private-token"));
+    }
+    app.db
+        .lock()
+        .unwrap()
+        .execute("UPDATE subscribers SET verified=1", [])?;
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/account")
+                .header("X-Forwarded-Email", "reader@example.com")
+                .body(Body::empty())?,
+        )
+        .await?;
+    let body: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["subscription"], "subscribed");
+    Ok(())
+}
