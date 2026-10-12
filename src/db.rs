@@ -288,7 +288,7 @@ pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<(
         )?;
         enqueue_event(
             &tx,
-            json!({"event":"incident.started","incident_id":id,"item_id":item.id,"name":item.spec.name,"status":next,"at":at}),
+            json!({"event":"incident.started","incident_id":id,"item_id":item.id,"name":item.spec.name,"status":next,"at":at,"group":item.spec.group,"description":item.spec.description,"display_value":display,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit,"latency_ms":obs.latency_ms}),
         )?;
     } else if old_bad && !next_bad {
         let incident: Option<String> = tx
@@ -301,7 +301,7 @@ pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<(
         tx.execute("UPDATE incidents SET status='resolved',resolved_at=? WHERE item_id=? AND resolved_at IS NULL",params![at,item.id])?;
         enqueue_event(
             &tx,
-            json!({"event":"incident.resolved","incident_id":incident,"item_id":item.id,"name":item.spec.name,"status":next,"at":at}),
+            json!({"event":"incident.resolved","incident_id":incident,"item_id":item.id,"name":item.spec.name,"status":next,"at":at,"group":item.spec.group,"description":item.spec.description,"display_value":display,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit,"latency_ms":obs.latency_ms}),
         )?;
     } else if next_bad {
         tx.execute(

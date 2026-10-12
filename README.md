@@ -137,15 +137,21 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
 python3 tests/smoke.py
+python3 tests/cli.py
+python3 tests/data_sources.py
 python3 -m pip install -r tests/requirements.txt
 python3 -m playwright install chromium
 python3 tests/browser.py
+python3 tests/refresh.py
 python3 tests/restart.py
 # Optional isolated integration against a Hangang executable:
 python3 tests/hangang_proxy.py
+# Optional owned PostgreSQL container (psql + local postgres:17 Docker image):
+python3 tests/data_sources.py --postgres
 ```
 
-Set `SACHO_BINARY` when testing a release or cross-target build. `HANGANG_BINARY`
+Set `SACHO_BINARY` when testing a release or cross-target build. Set `SACHO_TARGET`
+to that binary's target triple for the signed-update restart fixture. `HANGANG_BINARY`
 selects the real Hangang executable for its isolated integration test.
 Run builds and checks locally by default. GitHub Actions runs only when explicitly
 dispatched; pushes, tags and pull requests do not trigger it. An optional manual
@@ -161,3 +167,19 @@ have bounded captured output and a shared concurrency cap. Use a dedicated servi
 account and a private upstream listener behind an identity-stripping proxy.
 
 MIT. See [third-party attribution](THIRD_PARTY.md).
+
+## LLM setup guide
+
+[Embedded English runbook](docs/SETUP-HOWTO.md) · [한국어](docs/SETUP-HOWTO.ko.md)
+
+```sh
+sacho help setup
+sacho help setup --language ko
+sacho example prometheus
+sacho example postgresql
+sacho secrets --help
+```
+
+In Admin → Notifications, Jinja-style email subject/body and optional webhook JSON
+templates support preview without delivery. The setup runbook lists the API and
+variables. Credentials are excluded from template context.

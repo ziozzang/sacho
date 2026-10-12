@@ -1,15 +1,73 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "sacho", version, about = "Service health, recorded with care.")]
+#[command(
+    name = "sacho",
+    version,
+    about = "Service health, recorded with care.",
+    disable_help_subcommand = true
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 }
+#[derive(Clone, Copy, ValueEnum)]
+enum GuideLanguage {
+    En,
+    Ko,
+}
+fn setup_guide(language: GuideLanguage) -> &'static str {
+    match language {
+        GuideLanguage::En => include_str!("../docs/SETUP-HOWTO.md"),
+        GuideLanguage::Ko => include_str!("../docs/SETUP-HOWTO.ko.md"),
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum ExampleName {
+    Prometheus,
+    Postgresql,
+    ExternalCommand,
+}
+#[derive(Subcommand)]
+enum SecretAction {
+    /// Create a new encrypted vault and random unlock key
+    Init,
+    /// Store a value read from stdin; never put secrets in argv
+    Set { name: String },
+    /// List names only, never values
+    List,
+    /// Remove a named value
+    Remove { name: String },
+}
 #[derive(Subcommand)]
 enum Commands {
+    /// Print an embedded Lua data-source example
+    Example {
+        #[arg(value_enum)]
+        name: ExampleName,
+    },
+    /// Manage encrypted generic inputs (not provider credentials)
+    Secrets {
+        #[command(subcommand)]
+        action: SecretAction,
+        #[arg(long, global = true)]
+        vault: Option<PathBuf>,
+        #[arg(long, global = true)]
+        key_file: Option<PathBuf>,
+    },
+    /// Print the embedded setup guide for operators and LLM agents
+    SetupHowto {
+        #[arg(long, value_enum, default_value = "en")]
+        language: GuideLanguage,
+    },
+    /// Show command help, or the embedded guide with `help setup`
+    Help {
+        topic: Option<String>,
+        #[arg(long, value_enum, default_value = "en")]
+        language: GuideLanguage,
+    },
     /// Write an example configuration
     Init {
         #[arg(long, default_value = "sacho.toml")]
@@ -60,6 +118,86 @@ async fn main() -> Result<()> {
         worker: false,
         ready_file: None,
     }) {
+        Commands::Secrets {
+            action,
+            vault,
+            key_file,
+        } => {
+            let vault = vault.context("--vault is required")?;
+            let key_file = key_file.context("--key-file is required")?;
+            match action {
+                SecretAction::Init => sacho::secrets::init(&vault, &key_file)?,
+                SecretAction::Set { name } => {
+                    use std::io::Read;
+                    let mut value = zeroize::Zeroizing::new(String::new());
+                    std::io::stdin().take(65537).read_to_string(&mut value)?;
+                    anyhow::ensure!(value.len() <= 65536, "secret input exceeds 64 KiB");
+                    if value.ends_with('\n') {
+                        value.pop();
+                        if value.ends_with('\r') {
+                            value.pop();
+                        }
+                    }
+                    sacho::secrets::update(&vault, &key_file, &name, Some(value.to_string()))?;
+                }
+                SecretAction::List => {
+                    for name in sacho::secrets::load(&vault, &key_file)?.keys() {
+                        println!("{name}");
+                    }
+                }
+                SecretAction::Remove { name } => {
+                    sacho::secrets::update(&vault, &key_file, &name, None)?
+                }
+            }
+        }
+        Commands::Example { name } => {
+            use std::io::Write;
+            let source = match name {
+                ExampleName::Prometheus => include_str!("../examples/lua/prometheus.lua"),
+                ExampleName::Postgresql => include_str!("../examples/lua/postgresql.lua"),
+                ExampleName::ExternalCommand => {
+                    include_str!("../examples/lua/external-command.lua")
+                }
+            };
+            std::io::stdout().write_all(source.as_bytes())?;
+        }
+        Commands::SetupHowto { language } => {
+            use std::io::Write;
+            std::io::stdout().write_all(setup_guide(language).as_bytes())?;
+        }
+        Commands::Help { topic, language } => {
+            if matches!(topic.as_deref(), Some("setup" | "setup-howto")) {
+                use std::io::Write;
+                std::io::stdout().write_all(setup_guide(language).as_bytes())?;
+            } else if topic.as_deref() == Some("licenses") {
+                use std::io::Write;
+                std::io::stdout().write_all(
+                    concat!(
+                        include_str!("../THIRD_PARTY.md"),
+                        "\n",
+                        include_str!("../docs/licenses/minijinja.txt"),
+                        "\n",
+                        include_str!("../docs/licenses/rustcrypto-mit.txt"),
+                        "\n",
+                        include_str!("../docs/licenses/zeroize-mit.txt")
+                    )
+                    .as_bytes(),
+                )?;
+            } else {
+                let mut command = Cli::command();
+                if let Some(topic) = topic {
+                    command
+                        .find_subcommand_mut(&topic)
+                        .with_context(|| {
+                            format!("Unknown help topic: {topic}; try `sacho help setup`")
+                        })?
+                        .print_long_help()?;
+                } else {
+                    command.print_long_help()?;
+                }
+                println!();
+            }
+        }
         Commands::Init { config } => {
             use std::io::Write;
             let mut file = std::fs::OpenOptions::new()

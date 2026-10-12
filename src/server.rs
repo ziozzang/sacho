@@ -107,6 +107,11 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/items/{id}/run", post(run_item))
         .route("/api/admin/items/{id}/logs", get(logs))
         .route("/api/admin/test", post(test_draft))
+        .route(
+            "/api/admin/templates",
+            get(get_templates).put(save_templates),
+        )
+        .route("/api/admin/templates/preview", post(preview_templates))
         .route("/api/admin/layout", put(save_layout))
         .route("/api/admin/settings", get(settings).put(save_settings))
         .route("/api/admin/subscribers", get(subscribers))
@@ -693,4 +698,56 @@ async fn save_layout(State(app): State<App>, Json(layout): Json<Layout>) -> ApiR
     let value = serde_json::to_string(&layout.sections).map_err(anyhow::Error::from)?;
     conn.execute("INSERT INTO settings(key,value) VALUES('layout',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value])?;
     Ok(Json(json!({"ok":true})))
+}
+
+async fn get_templates(State(app): State<App>) -> ApiResult<Json<Value>> {
+    let conn = app.db.lock().unwrap();
+    let templates = crate::templates::load(&conn)?;
+    let ctx = crate::templates::context(
+        "Sacho",
+        "https://status.example.com",
+        &json!({"event":"incident.started"}),
+    );
+    Ok(Json(
+        json!({"templates":templates,"defaults":crate::templates::Templates::default(),"variables":ctx.as_object().unwrap().keys().collect::<Vec<_>>()}),
+    ))
+}
+async fn save_templates(
+    State(app): State<App>,
+    Json(templates): Json<crate::templates::Templates>,
+) -> ApiResult<Json<Value>> {
+    templates.validate().map_err(|e| bad(&e.to_string()))?;
+    app.db.lock().unwrap().execute("INSERT INTO settings(key,value) VALUES('notification_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&templates).map_err(anyhow::Error::from)?])?;
+    Ok(Json(json!({"ok":true})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplatePreview {
+    templates: crate::templates::Templates,
+    event: String,
+}
+async fn preview_templates(Json(draft): Json<TemplatePreview>) -> ApiResult<Json<Value>> {
+    if !matches!(
+        draft.event.as_str(),
+        "incident.started" | "incident.resolved" | "subscription.verify"
+    ) {
+        return Err(bad("Unknown preview event"));
+    }
+    draft
+        .templates
+        .validate()
+        .map_err(|e| bad(&e.to_string()))?;
+    let payload = json!({"event":draft.event,"name":"Example service","status":if draft.event=="incident.resolved" {"operational"} else {"outage"},"delivery_id":"example-delivery","incident_id":"example-incident","item_id":"example-item","token":"example","unsubscribe_token":"example","at":1700000000,"group":"Example","description":"Example description","display_value":"42.5","display_label":"TPS","metric_unit":" TPS","latency_ms":25});
+    let ctx = crate::templates::context("Sacho", "https://status.example.com", &payload);
+    let (subject, body) = draft
+        .templates
+        .email(&ctx)
+        .map_err(|e| bad(&e.to_string()))?;
+    let webhook = draft
+        .templates
+        .webhook(&ctx, &payload)
+        .map_err(|e| bad(&e.to_string()))?;
+    Ok(Json(
+        json!({"subject":subject,"body":body,"webhook":webhook}),
+    ))
 }

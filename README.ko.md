@@ -117,3 +117,19 @@ sacho update --config sacho.toml # 서버를 중지한 상태에서 수동 설�
 명시적인 수동 실행만 지원하며 push·태그·PR로 자동 실행되지 않습니다.
 빌드·통합·브라우저·업데이트 테스트 명령은 [영문 문서](README.md)에 있습니다.
 MIT 라이선스. [참고 코드·라이선스](THIRD_PARTY.md).
+
+## LLM 설정 가이드
+
+[영문 가이드](docs/SETUP-HOWTO.md) · [한국어 가이드](docs/SETUP-HOWTO.ko.md)
+
+```sh
+sacho help setup
+sacho help setup --language ko
+sacho example prometheus
+sacho example postgresql
+sacho secrets --help
+```
+
+관리자 → 알림에서 Jinja 형식의 메일 제목·본문과 웹훅 JSON 템플릿을 편집하고
+전송 없이 미리볼 수 있습니다. 사용 변수와 API는 설정 가이드에 정리했습니다.
+인증값은 템플릿 context에 넣지 않습니다.

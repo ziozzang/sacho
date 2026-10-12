@@ -27,4 +27,9 @@ interval_seconds = 21600
 # from = "Status <status@example.com>"
 # username = "status@example.com"
 # password_env = "SACHO_SMTP_PASSWORD"
-# security = "starttls" # tls for port 465, plain only for loopback test relays
+# security = "starttls" # tls for port 465, plain only for loopback/private IPv4 relays
+
+# Optional encrypted generic inputs. Keep both files outside the repository.
+# [secrets]
+# vault = "/etc/sacho/secrets.enc"
+# key_file = "/etc/sacho/unlock.key"

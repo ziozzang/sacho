@@ -23,7 +23,7 @@ pub async fn email(cfg: &Config, to: &str, subject: &str, body: &str) -> Result<
     .port(smtp.port)
     .timeout(Some(Duration::from_secs(15)));
     let builder = if let Some(username) = &smtp.username {
-        let password = std::env::var(
+        let password = cfg.environment(
             smtp.password_env
                 .as_deref()
                 .context("SMTP password_env required with username")?,
@@ -46,7 +46,10 @@ async fn deliver(
     kind: &str,
     to: &str,
     payload: &Value,
+    templates: &crate::templates::Templates,
+    site_title: &str,
 ) -> Result<()> {
+    let context = crate::templates::context(site_title, &cfg.public_url, payload);
     if kind == "webhook" {
         let response = client
             .post(to)
@@ -54,7 +57,7 @@ async fn deliver(
                 "Idempotency-Key",
                 payload["delivery_id"].as_str().unwrap_or_default(),
             )
-            .json(payload)
+            .json(&templates.webhook(&context, payload)?)
             .send()
             .await?;
         ensure!(
@@ -63,36 +66,7 @@ async fn deliver(
             response.status()
         );
     } else {
-        let base = cfg.public_url.trim_end_matches('/');
-        let (subject, body) = if payload["event"] == "subscription.verify" {
-            (
-                format!("{} · Confirm subscription / 구독 확인", cfg.title),
-                format!(
-                    "Confirm your subscription / 구독을 확인하세요:\n{base}/subscription/confirm?token={}\n\nIf you did not request this, ignore this email. / 요청하지 않았다면 무시하세요.",
-                    payload["token"].as_str().unwrap_or_default()
-                ),
-            )
-        } else {
-            let recovered = payload["event"] == "incident.resolved";
-            let state = if recovered {
-                "Recovered / 복구"
-            } else {
-                "Incident / 장애"
-            };
-            (
-                format!(
-                    "{} · {state} · {}",
-                    cfg.title,
-                    payload["name"].as_str().unwrap_or("Service")
-                ),
-                format!(
-                    "{state}: {}\nStatus: {}\n{base}\n\nUnsubscribe / 구독 해지:\n{base}/subscription/unsubscribe?token={}",
-                    payload["name"].as_str().unwrap_or("Service"),
-                    payload["status"].as_str().unwrap_or("unknown"),
-                    payload["unsubscribe_token"].as_str().unwrap_or_default()
-                ),
-            )
-        };
+        let (subject, body) = templates.email(&context)?;
         email(cfg, to, &subject, &body).await?;
     }
     Ok(())
@@ -127,7 +101,10 @@ pub async fn worker(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>) {
                 Err(_) => continue,
             };
             payload["delivery_id"] = serde_json::json!(id.to_string());
-            let result = tokio::select! {_=stop.changed()=>return,result=deliver(&cfg,&client,&kind,&to,&payload)=>result};
+            let result = tokio::select! {_=stop.changed()=>return,result=async {
+                let (templates,site_title)={let conn=db.lock().unwrap();(crate::templates::load(&conn)?,db::site(&conn,&cfg)?["title"].as_str().unwrap_or(&cfg.title).to_owned())};
+                deliver(&cfg,&client,&kind,&to,&payload,&templates,&site_title).await
+            }=>result};
             let conn = db.lock().unwrap();
             let update = match result {
                 Ok(()) => conn.execute(

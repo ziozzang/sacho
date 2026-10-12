@@ -65,7 +65,7 @@ async fn command(item: &Item, cfg: &Config) -> Result<(String, i32)> {
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     for name in &cfg.probe_env {
-        if let Ok(value) = std::env::var(name) {
+        if let Ok(value) = cfg.environment(name) {
             cmd.env(name, value);
         }
     }
@@ -161,7 +161,7 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
                 );
                 request = request.header(
                     header,
-                    std::env::var(env).context("probe credential missing")?,
+                    cfg.environment(env).context("probe credential missing")?,
                 );
             }
             let mut response = request.send().await?;

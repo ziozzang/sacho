@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Hermetic end-to-end checks of the actual binary, Lua, SQLite and delivery."""
+import email.header
 import contextlib, email, json, os, pathlib, signal, socket, socketserver, subprocess, tempfile, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT=pathlib.Path(__file__).resolve().parents[1]
@@ -95,6 +96,14 @@ def main():
    spec.update(display_pointer='/tps',metric_unit=' TPS',threshold=10,comparison='gt',json_pointer='/tps')
    request('/api/admin/items/'+item,'PUT',spec);request('/api/admin/items/'+item+'/run','POST')
    wait_for(lambda:request('/api/status')['items'][0]['display_value']=='42.5')
+   templates=request('/api/admin/templates')['templates']
+   templates.update(subject='{{ service_name }} / {{ event }}',body='{% if recovered %}Recovered{% else %}Incident{% endif %}: {{ status_name }}',webhook_body='{"event":{{ event | tojson }},"delivery_id":{{ delivery_id | tojson }},"service":{{ service_name | tojson }}}')
+   preview=request('/api/admin/templates/preview','POST',{'templates':templates,'event':'incident.resolved'});assert 'Recovered' in preview['body'] and preview['webhook']['event']=='incident.resolved'
+   assert not Fixture.events and len(SMTP.messages)==1
+   bad=dict(templates,subject='{{ nonexistent_variable }}')
+   try:request('/api/admin/templates','PUT',bad);raise AssertionError('unknown variable accepted')
+   except urllib.error.HTTPError as error:assert error.code==400
+   request('/api/admin/templates','PUT',templates)
    Fixture.failed=True;request('/api/admin/items/'+item+'/run','POST')
    wait_for(lambda:request('/api/status')['status']=='outage')
    wait_for(lambda:len(Fixture.events)==1 and len(SMTP.messages)==2)
@@ -104,7 +113,10 @@ def main():
    wait_for(lambda:request('/api/status')['status']=='operational')
    wait_for(lambda:len(Fixture.events)==2 and len(SMTP.messages)==3)
    assert [e['event'] for e in Fixture.events]==['incident.started','incident.resolved']
-   assert all('delivery_id' in e for e in Fixture.events)
+   assert all('delivery_id' in e and e['service']=='Lua scenario' for e in Fixture.events)
+   for message in SMTP.messages[1:]:
+    parsed=email.message_from_bytes(message);subject=str(email.header.make_header(email.header.decode_header(parsed['Subject'])));assert 'Lua scenario / incident.' in subject
+    text=parsed.get_payload(decode=True).decode('utf-8');assert '/subscription/unsubscribe?token=' in text
    logs=request('/api/admin/items/'+item+'/logs');assert any(l['status']=='outage' for l in logs)
    for precision in (5,10,30,60,300,1800,86400):
     to=int(time.time())+1;history=request(f'/api/history/{item}?from={to-3600}&to={to}&precision={precision}');assert history['buckets']

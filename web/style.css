@@ -4,3 +4,5 @@
 .metric{overflow-wrap:anywhere;max-width:240px;line-height:1.4}.service-head>div:first-child{min-width:0}.service-head h3{overflow-wrap:anywhere}.service-right{min-width:0;max-width:60%}
 
 .account-strip{max-width:1012px;margin:16px auto -20px;padding:0 32px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}.account-strip[hidden],.chart-tooltip[hidden]{display:none}.subscription-state{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;border:1px solid var(--line);background:white;font-size:12px;overflow-wrap:anywhere}.subscription-state.subscribed{background:var(--green-bg);color:var(--green);border-color:#d4eadd}.chart-tooltip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:white;padding:11px 14px;border-radius:8px;max-width:calc(100vw - 16px);font-size:12px;box-shadow:0 8px 24px #0003;white-space:normal}@media(max-width:700px){.account-strip{padding:0 20px;justify-content:flex-start}.subscription-state{flex-wrap:wrap}}
+
+.template-variables{display:flex;flex-wrap:wrap;gap:6px}.template-variables code{font-size:10px;background:var(--bg);padding:3px 6px;border-radius:4px}

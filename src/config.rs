@@ -16,6 +16,15 @@ pub struct Config {
     pub retention_days: u32,
     pub max_concurrent_checks: usize,
     pub probe_env: Vec<String>,
+    pub secrets: Option<Secrets>,
+    #[serde(skip)]
+    pub secret_values: std::collections::BTreeMap<String, String>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Secrets {
+    pub vault: String,
+    pub key_file: String,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -87,14 +96,26 @@ impl Default for Config {
             retention_days: 100,
             max_concurrent_checks: 16,
             probe_env: vec![],
+            secrets: None,
+            secret_values: Default::default(),
         }
     }
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let cfg: Self = toml::from_str(&std::fs::read_to_string(path)?)?;
+        let mut cfg: Self = toml::from_str(&std::fs::read_to_string(path)?)?;
+        if let Some(secrets) = &cfg.secrets {
+            cfg.secret_values =
+                crate::secrets::load(Path::new(&secrets.vault), Path::new(&secrets.key_file))?;
+        }
         cfg.validate()?;
         Ok(cfg)
+    }
+    pub fn environment(&self, name: &str) -> Result<String> {
+        std::env::var(name)
+            .ok()
+            .or_else(|| self.secret_values.get(name).cloned())
+            .ok_or_else(|| anyhow::anyhow!("named input is not available"))
     }
     pub fn validate(&self) -> Result<()> {
         let bind: SocketAddr = self.bind.parse()?;
@@ -176,7 +197,7 @@ impl Config {
             smtp.from.parse::<lettre::message::Mailbox>()?;
             if let Some(name) = &smtp.password_env {
                 ensure!(
-                    std::env::var(name).is_ok(),
+                    self.environment(name).is_ok(),
                     "SMTP password environment variable is missing"
                 );
             }

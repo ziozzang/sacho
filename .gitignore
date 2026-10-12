@@ -14,3 +14,6 @@ __pycache__/
 
 /TODO.md
 /tests/real_services.py
+
+*.enc
+*.vault
