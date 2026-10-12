@@ -116,7 +116,7 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/notifications", get(notifications))
         .route_layer(middleware::from_fn_with_state(app.clone(), admin_auth));
     Router::new().merge(admin)
-        .route("/",get(index)).route("/admin",get(index))
+        .route("/",get(index)).route("/admin",get(index)).route("/admin/",get(index))
         .route("/assets/lua-editor.js",get(lua_script)).route("/assets/lua-editor.css",get(lua_style))
         .route("/assets/app.js",get(script)).route("/assets/style.css",get(style))
         .route("/healthz",get(health))
@@ -225,7 +225,7 @@ async fn history(
     let to = q.to.unwrap_or(db::now());
     let from = q.from.unwrap_or(to - 90 * 86400);
     let precision = q.precision.unwrap_or(86400);
-    if ![30, 60, 300, 1800, 3600, 86400].contains(&precision)
+    if ![5, 10, 30, 60, 300, 1800, 3600, 86400].contains(&precision)
         || from >= to
         || to > db::now() + 60
         || from < 0
@@ -569,6 +569,7 @@ async fn notifications(State(app): State<App>) -> ApiResult<Json<Value>> {
     Ok(Json(json!(rows)))
 }
 pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
+    let mut shutdown = crate::supervisor::shutdown_listener()?;
     cfg.validate()?;
     let db = db::open(&cfg.database)?;
     let cfg = Arc::new(cfg);
@@ -591,7 +592,7 @@ pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
     tracing::info!(bind=%cfg.bind,"Sacho ready");
     axum::serve(listener, router(app))
         .with_graceful_shutdown(async move {
-            crate::supervisor::signal().await;
+            crate::supervisor::cancelled(&mut shutdown).await;
             let _ = stop_tx.send(true);
         })
         .await?;

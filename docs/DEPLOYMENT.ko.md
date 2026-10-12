@@ -25,7 +25,11 @@ admins = ["operator@example.com"]
 등록된 관리자 이메일과 정확히 비교합니다.
 
 [hangang 설정 예제](../deploy/hangang.example.json)는 `/`를 공개하고
-`/admin`, `/api/admin/`을 더 높은 우선순위의 인증 경로로 처리합니다.
+`/_hopae`, `/admin`, `/api/admin/`을 더 높은 우선순위의 인증 경로로 처리합니다.
+`/_hopae` 경로는 Google 로그인 후 Sacho 도메인에 세션 쿠키를 심는
+핸드오프를 처리합니다. 이 경로가 없으면 Google 로그인은 성공해도 Sacho는
+로그인 상태가 되지 않습니다. 공개 경로를 포함해 Hopae 쿠키를 업스트림에서
+제거합니다. 별도의 HTTP 경로는 업스트림 호출 전에 HTTPS로 이동합니다.
 호스트·리스너 ID·백엔드·인증 계약을 현재 hangang 설정에 맞게 바꾸세요.
 Hopae에는 Sacho 호스트를 앱으로 등록합니다. hangang의 `HANGANG_HOPAE_KEY`
 환경변수는 클라이언트가 보낼 수 없어야 하며 Sacho에 복사할 필요도 없습니다.

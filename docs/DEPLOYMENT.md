@@ -29,10 +29,16 @@ is exact, not a suffix or domain match.
 ## Hangang + Hopae
 
 [`deploy/hangang.example.json`](../deploy/hangang.example.json) defines public `/`
-and protected `/admin` and `/api/admin/` routes. The protected routes have higher
+and protected `/_hopae`, `/admin` and `/api/admin/` routes. The protected routes have higher
 priority. Adjust the host, listener IDs, backend address and existing authenticator
 contract to your Hangang deployment. With Hopae, register the Sacho host in its apps
 and use the same verified-email header/contract as your working protected routes.
+The `/_hopae` route is required even when the public page is anonymous: after
+Google sign-in Hopae returns to `/_hopae/login` on the application host to redeem
+the browser-bound handoff and set its host-only cookie. Without that protected
+route, Google can report success while the application stays logged out. Every
+application route strips Hopae handle/binding cookies before forwarding upstream.
+The additional HTTP listener route redirects to HTTPS before any upstream call.
 The example names `HANGANG_HOPAE_KEY`, which belongs to Hangang's environment and
 must never be supplied by the client. Sacho needs no copy of that gateway secret.
 

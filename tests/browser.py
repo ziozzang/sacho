@@ -20,7 +20,7 @@ def main():
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     page.add_init_script("localStorage.setItem('sacho-language','en')")
     page.goto(base+'/admin');page.get_by_role('button',name='+ Add service',exact=True).click()
-    page.locator('[name=name]').fill('Gateway scenario');page.locator('[name=group]').fill('Infrastructure');page.locator('[name=kind]').select_option('lua')
+    page.locator('[name=name]').fill('Gateway scenario');page.locator('[name=group]').fill('Infrastructure');page.locator('[name=kind]').select_option('lua');page.locator('[name=interval_seconds]').fill('5');page.locator('[name=timeout_seconds]').fill('3')
     editor=page.locator('.sacho-lua-editor .cm-content');editor.wait_for()
     editor.fill('return sacho.json_encode({version="v0.1.0",tps=42.5})')
     page.locator('[name=publish_value]').check();page.locator('[name=display_pointer]').fill('/version');page.locator('[name=display_label]').fill('Version');page.locator('[name=metric_unit]').fill('')
@@ -43,14 +43,14 @@ def main():
     page.screenshot(path=str(ROOT/'runtime/screenshots/admin-layout.png'),full_page=True)
     wait_for(lambda:all(i['last_check'] is not None for i in request('/api/status')['items']))
     page.goto(base+'/');page.get_by_text('v0.1.0',exact=False).first.wait_for();page.get_by_text('42.5 TPS',exact=True).wait_for()
-    page.locator('#range').select_option('3600');page.locator('#precision').select_option('30');page.locator('.bar').last.wait_for();page.locator('.bar').last.click();assert page.locator('.detail:not([hidden])').count()==1
+    page.locator('#range').select_option('3600');expect(page.locator('#precision')).to_have_value('30');assert not page.locator('#precision option[value="86400"]').count();page.locator('#precision').select_option('5');page.locator('.bar').last.wait_for();page.locator('.bar').last.click();assert page.locator('.detail:not([hidden])').count()==1
     page.screenshot(path=str(ROOT/'runtime/screenshots/status-desktop.png'),full_page=True)
     page.locator('#language').click();page.get_by_text('모든 시스템이 정상 운영 중입니다').wait_for()
     page.set_viewport_size({'width':390,'height':844});page.screenshot(path=str(ROOT/'runtime/screenshots/status-mobile-ko.png'),full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert not errors,errors
     browser.close()
-    print('PASS: embedded Lua editor, language draft preservation, test/save, version/TPS display, drag/drop persistence, preview, 30s chart and Korean mobile layout')
+    print('PASS: embedded Lua editor, language draft preservation, test/save, version/TPS display, drag/drop persistence, preview, automatic 1h resolution, 5s chart and Korean mobile layout')
   finally:
    server.terminate()
    try:server.wait(timeout=20)

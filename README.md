@@ -41,9 +41,12 @@ Configuration and the persistent SQLite database are separate runtime files.
 - Display the latest query result independently from health: version strings, TPS,
   subscription remaining percentages or another scalar. Public display is opt-in;
   scripts, raw output, credentials and condition configuration remain private.
-- Durable observations and logs; 30s, 1m, 5m, 30m, 1h and daily aggregation, from a
+- Durable observations and logs; 5s, 10s, 30s, 1m, 5m, 30m, 1h and daily aggregation, from a
   one-hour detail view to 90 days. Empty periods stay gray. Uptime is the fraction
   of **observed checks** that passed, not a claim about unobserved wall-clock time.
+- Time gaps are limited by the selected range and configured check intervals;
+  changing the range automatically picks a suitable resolution. Dense series
+  retain their query resolution and combine bars for a bounded visual width.
 - Administrator layout editor: named sections, drag/drop ordering and cross-section
   moves, keyboard-accessible move controls, preview and persistent publication.
 - SMTP and webhooks on incident start and recovery. State, incidents and delivery

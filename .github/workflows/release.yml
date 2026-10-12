@@ -51,6 +51,8 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_TERM_COLOR: always
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       SACHO_BINARY: target/${{ matrix.target }}/release/sacho
       SACHO_TARGET: ${{ matrix.target }}
     steps:
@@ -68,6 +70,13 @@ jobs:
           rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.96.0
           rustup target add '${{ matrix.target }}'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets --target '${{ matrix.target }}' -- -D warnings
       - run: cargo test --locked --all-targets --target '${{ matrix.target }}'
@@ -122,4 +131,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Sacho $RELEASE_TAG"
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Sacho $RELEASE_TAG"
+          fi

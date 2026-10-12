@@ -94,7 +94,7 @@ def main():
    assert [e['event'] for e in Fixture.events]==['incident.started','incident.resolved']
    assert all('delivery_id' in e for e in Fixture.events)
    logs=request('/api/admin/items/'+item+'/logs');assert any(l['status']=='outage' for l in logs)
-   for precision in (30,60,300,1800,86400):
+   for precision in (5,10,30,60,300,1800,86400):
     to=int(time.time())+1;history=request(f'/api/history/{item}?from={to-3600}&to={to}&precision={precision}');assert history['buckets']
    with urllib.request.urlopen(urllib.request.Request(base+'/subscription/unsubscribe?token='+token,data=b'',method='POST')) as res:assert res.status==200
    assert not request('/api/admin/subscribers')

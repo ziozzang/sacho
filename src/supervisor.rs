@@ -6,17 +6,31 @@ use anyhow::{Context, Result, ensure};
 use std::{fs::File, path::Path, time::Duration};
 use tokio::process::{Child, Command};
 
-pub async fn signal() {
+pub fn shutdown_listener() -> Result<tokio::sync::watch::Receiver<bool>> {
+    let (tx, rx) = tokio::sync::watch::channel(false);
     #[cfg(unix)]
     {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("install SIGTERM handler");
-        tokio::select! { _=tokio::signal::ctrl_c()=>{}, _=term.recv()=>{} }
+        use tokio::signal::unix::{SignalKind, signal};
+        // Register before spawning/readiness; the receiver survives every await.
+        let mut term = signal(SignalKind::terminate())?;
+        let mut interrupt = signal(SignalKind::interrupt())?;
+        tokio::spawn(async move {
+            tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
+            let _ = tx.send(true);
+        });
     }
     #[cfg(not(unix))]
-    {
+    tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
+        let _ = tx.send(true);
+    });
+    Ok(rx)
+}
+pub async fn cancelled(rx: &mut tokio::sync::watch::Receiver<bool>) {
+    if *rx.borrow() {
+        return;
     }
+    let _ = rx.changed().await;
 }
 pub fn instance_lock(database: &str) -> Result<File> {
     let path = format!("{database}.lock");
@@ -100,7 +114,11 @@ async fn stop(child: &mut Child) {
         let _ = child.wait().await;
     }
 }
-async fn start(exe: &Path, config: &Path) -> Result<(Child, String)> {
+async fn start(
+    exe: &Path,
+    config: &Path,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<Option<(Child, String)>> {
     let temp = tempfile::tempdir()?;
     let ready = temp.path().join("ready");
     let mut child = Command::new(exe)
@@ -110,7 +128,9 @@ async fn start(exe: &Path, config: &Path) -> Result<(Child, String)> {
         .arg(&ready)
         .kill_on_drop(true)
         .spawn()?;
-    let result = tokio::time::timeout(Duration::from_secs(30), async {
+    let result = tokio::select! {
+      _=cancelled(shutdown)=>{stop(&mut child).await;return Ok(None);},
+      result=tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             if let Some(status) = child.try_wait()? {
                 anyhow::bail!("worker exited during startup: {status}");
@@ -122,10 +142,10 @@ async fn start(exe: &Path, config: &Path) -> Result<(Child, String)> {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    })
-    .await;
+      })=>result,
+    };
     match result {
-        Ok(Ok(version)) => Ok((child, version)),
+        Ok(Ok(version)) => Ok(Some((child, version))),
         Ok(Err(error)) => {
             stop(&mut child).await;
             Err(error)
@@ -137,10 +157,13 @@ async fn start(exe: &Path, config: &Path) -> Result<(Child, String)> {
     }
 }
 pub async fn run(config: &Path, cfg: Config) -> Result<()> {
+    let mut shutdown = shutdown_listener()?;
     let _lock = instance_lock(&cfg.database)?;
     let exe = std::env::current_exe()?;
     let config = std::fs::canonicalize(config)?;
-    let (mut child, mut version) = start(&exe, &config).await?;
+    let Some((mut child, mut version)) = start(&exe, &config, &mut shutdown).await? else {
+        return Ok(());
+    };
     let mut timer = tokio::time::interval(Duration::from_secs(cfg.updates.interval_seconds));
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut retained: Option<ActivatedUpdate> = None;
@@ -148,13 +171,13 @@ pub async fn run(config: &Path, cfg: Config) -> Result<()> {
     let mut health = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
-            _=signal()=>{stop(&mut child).await;return Ok(());}
+            _=cancelled(&mut shutdown)=>{stop(&mut child).await;return Ok(());}
             status=child.wait()=>{
                 let status=status?;
                 if let Some(activated)=retained.take() {
                     tracing::error!(%status,"updated worker exited during probation; rolling back");
                     UpdateManager::rollback(activated)?;
-                    (child,version)=start(&exe,&config).await?;
+                    let Some((next_child,next_version))=start(&exe,&config,&mut shutdown).await? else {return Ok(());};child=next_child;version=next_version;
                 } else {ensure!(status.success(),"worker exited: {status}");return Ok(());}
             }
             _=health.tick()=>{
@@ -166,7 +189,7 @@ pub async fn run(config: &Path, cfg: Config) -> Result<()> {
             }
             _=timer.tick(), if cfg.updates.enabled && retained.is_none()=>{
                 let result=tokio::select! {
-                    _=signal()=>{stop(&mut child).await;return Ok(());},
+                    _=cancelled(&mut shutdown)=>{stop(&mut child).await;return Ok(());},
                     status=child.wait()=>{anyhow::bail!("worker exited while checking updates: {}",status?);},
                     result=stage_for(&cfg,&exe,&version)=>result,
                 };
@@ -176,11 +199,12 @@ pub async fn run(config: &Path, cfg: Config) -> Result<()> {
                         stop(&mut child).await;
                         let activated=match UpdateManager::activate(staged,&exe) {
                             Ok(a)=>a,
-                            Err(error)=>{(child,version)=start(&exe,&config).await?;tracing::error!(%error,"update activation failed");continue;}
+                            Err(error)=>{let Some((next_child,next_version))=start(&exe,&config,&mut shutdown).await? else {return Ok(());};child=next_child;version=next_version;tracing::error!(%error,"update activation failed");continue;}
                         };
-                        match start(&exe,&config).await {
-                            Ok((new_child,new_version))=>{child=new_child;version=new_version;healthy_since=tokio::time::Instant::now();retained=Some(activated);}
-                            Err(error)=>{tracing::error!(%error,"updated worker failed readiness; rolling back");UpdateManager::rollback(activated)?;(child,version)=start(&exe,&config).await?;}
+                        match start(&exe,&config,&mut shutdown).await {
+                            Ok(Some((new_child,new_version)))=>{child=new_child;version=new_version;healthy_since=tokio::time::Instant::now();retained=Some(activated);}
+                            Ok(None)=>{UpdateManager::rollback(activated)?;return Ok(());},
+                            Err(error)=>{tracing::error!(%error,"updated worker failed readiness; rolling back");UpdateManager::rollback(activated)?;let Some((next_child,next_version))=start(&exe,&config,&mut shutdown).await? else {return Ok(());};child=next_child;version=next_version;}
                         }
                     }
                     Err(error) if error.downcast_ref::<UpToDate>().is_some()=>tracing::debug!("already up to date"),

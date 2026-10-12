@@ -19,7 +19,7 @@ def main():
   cfg=tmp/'sacho.toml';cfg.write_text(f'bind="127.0.0.1:{port}"\ndatabase="{tmp}/sacho.db"\npublic_url="http://127.0.0.1:{gateway}"\n[auth]\nmode="auth-proxy"\nemail_header="X-Forwarded-Email"\nadmins=["admin@example.com"]\n')
   authentication={'url':f'http://127.0.0.1:{auth.server_port}/verify','request_headers':['cookie'],'response_headers':['x-forwarded-email'],'timeout_ms':1000}
   backend=[f'http://127.0.0.1:{port}']
-  routes=[{'id':'sacho-admin-api','path_prefix':'/api/admin/','priority':20,'access_mode':'protected','backends':backend,'auth':authentication},{'id':'sacho-console','path_prefix':'/admin','priority':20,'access_mode':'protected','backends':backend,'auth':authentication},{'id':'sacho-public','path_prefix':'/','access_mode':'public','backends':backend}]
+  routes=[{'id':'sacho-hopae','path_prefix':'/_hopae','priority':30,'access_mode':'protected','backends':backend,'auth':authentication},{'id':'sacho-admin-api','path_prefix':'/api/admin/','priority':20,'access_mode':'protected','backends':backend,'auth':authentication},{'id':'sacho-console','path_prefix':'/admin','priority':20,'access_mode':'protected','backends':backend,'auth':authentication},{'id':'sacho-public','path_prefix':'/','access_mode':'public','backends':backend}]
   proxy=tmp/'hangang.json';proxy.write_text(json.dumps({'http':routes}))
   log=open(tmp/'integration.log','w');sacho=subprocess.Popen([str(BINARY),'serve','--config',str(cfg)],stdout=log,stderr=log)
   env=os.environ.copy();env['HANGANG_ADMIN_TOKEN']=uuid.uuid4().hex
@@ -33,6 +33,8 @@ def main():
   try:
    wait_for(lambda:request('/healthz'))
    assert request('/api/status')['status']=='unknown'
+   try:request('/_hopae/login');raise AssertionError('Hopae namespace bypassed authentication')
+   except urllib.error.HTTPError as e:assert e.code==403,e.code
    for cookie,expected in [(None,403),('reader',401)]:
     try:request('/api/admin/items',cookie);raise AssertionError('forged administrator accepted')
     except urllib.error.HTTPError as e:assert e.code==expected,e.code
