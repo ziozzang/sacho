@@ -158,7 +158,9 @@ pub fn permit_delivery(
         return Ok(true);
     };
     let policy = policy(conn)?;
-    let reason = if policy.maintenance_until > db::now() {
+    let reason = if kind == "email" && !crate::access::public_event(conn, event)? {
+        Some("restricted monitoring data")
+    } else if policy.maintenance_until > db::now() {
         Some("maintenance")
     } else if policy.enabled() && name == "incident.started" {
         let open: bool = conn.query_row(

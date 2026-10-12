@@ -17,6 +17,10 @@ pub struct CheckSpec {
     pub worker: String,
     pub description: String,
     pub group: String,
+    #[serde(skip_serializing_if = "crate::access::is_public")]
+    pub visibility: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub access_groups: Vec<String>,
     pub kind: String,
     pub target: String,
     pub interval_seconds: u64,
@@ -92,6 +96,8 @@ impl Default for CheckSpec {
             worker: String::new(),
             description: String::new(),
             group: "Services".into(),
+            visibility: crate::access::default_visibility(),
+            access_groups: vec![],
             kind: "http".into(),
             target: String::new(),
             interval_seconds: 60,
@@ -135,6 +141,7 @@ impl Default for CheckSpec {
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
         crate::network_probes::validate(self)?;
+        crate::access::validate(self)?;
         crate::scoped_inputs::validate(self)?;
         crate::scheduling::validate(self)?;
         crate::sources::validate(self)?;
@@ -476,11 +483,13 @@ pub fn queue(conn: &Connection, kind: &str, destination: &str, payload: &Value) 
 }
 fn enqueue_event(conn: &Connection, event: Value) -> Result<()> {
     let mut stmt = conn.prepare("SELECT email,token FROM subscribers WHERE verified=1")?;
-    for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-        let (email, token) = row?;
-        let mut payload = event.clone();
-        payload["unsubscribe_token"] = json!(token);
-        crate::monitoring::queue_monitor(conn, "email", &email, &payload)?;
+    if crate::access::public_event(conn, &event)? {
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (email, token) = row?;
+            let mut payload = event.clone();
+            payload["unsubscribe_token"] = json!(token);
+            crate::monitoring::queue_monitor(conn, "email", &email, &payload)?;
+        }
     }
     let mut stmt = conn.prepare("SELECT url FROM webhooks WHERE enabled=1")?;
     for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
@@ -503,7 +512,7 @@ pub fn site(conn: &Connection, cfg: &crate::config::Config) -> Result<Value> {
             .unwrap_or(default.into()))
     };
     Ok(
-        json!({"title":get("title",&cfg.title)?,"description":get("description",&cfg.description)?,"layout":serde_json::from_str::<Value>(&get("layout","[]")?)?}),
+        json!({"title":get("title",&cfg.title)?,"description":get("description",&cfg.description)?,"layout":serde_json::from_str::<Value>(&get("layout","[]")?)?,"view_preferences":get("view.preferences","all")?}),
     )
 }
 

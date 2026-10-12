@@ -58,17 +58,13 @@ async fn admin_auth(State(app): State<App>, request: Request, next: Next) -> Res
     let authorized = if app.cfg.auth.mode == "no-auth" {
         true
     } else {
-        request
-            .headers()
-            .get(&app.cfg.auth.email_header)
-            .and_then(|h| h.to_str().ok())
-            .is_some_and(|email| {
-                app.cfg
-                    .auth
-                    .admins
-                    .iter()
-                    .any(|allowed| allowed.eq_ignore_ascii_case(email.trim()))
-            })
+        crate::access::email(&app.cfg, request.headers()).is_some_and(|email| {
+            app.cfg
+                .auth
+                .admins
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(&email))
+        })
     };
     if !authorized {
         return ApiError(
@@ -110,6 +106,10 @@ pub fn router(app: App) -> Router {
             put(update_item).delete(delete_item),
         )
         .route("/api/admin/items/{id}/run", post(run_item))
+        .route(
+            "/api/admin/access-groups",
+            get(access_groups).put(save_access_groups),
+        )
         .route("/api/admin/items/{id}/logs", get(logs))
         .route("/api/admin/test", post(test_draft))
         .route("/api/admin/validate", post(validate_draft))
@@ -164,15 +164,7 @@ pub fn router(app: App) -> Router {
         .with_state(app)
 }
 async fn account(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let email = if app.cfg.auth.mode == "auth-proxy" {
-        headers
-            .get(&app.cfg.auth.email_header)
-            .and_then(|v| v.to_str().ok())
-            .map(|v| v.trim().to_lowercase())
-            .filter(|v| valid_email(v))
-    } else {
-        None
-    };
+    let email = crate::access::email(&app.cfg, &headers);
     let Some(email) = email else {
         return Ok(Json(json!({"email":null})));
     };
@@ -232,11 +224,12 @@ async fn health(State(app): State<App>) -> ApiResult<Json<Value>> {
         .query_row("SELECT 1", [], |r| r.get::<_, i32>(0))?;
     Ok(Json(json!({"status":"ok","version":crate::VERSION})))
 }
-async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
+async fn status(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let conn = app.db.lock().unwrap();
     let mut result = vec![];
+    let reader = crate::access::Reader::new(&conn, &app.cfg, &headers)?;
     for item in db::items(&conn)? {
-        if !item.spec.enabled {
+        if !item.spec.enabled || !reader.allowed(&item.spec) {
             continue;
         }
         let scheduled = crate::scheduling::next(&conn, &item)?;
@@ -303,8 +296,14 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
     } else {
         "operational"
     };
+    let mut site = db::site(&conn, &app.cfg)?;
+    let ids = result
+        .iter()
+        .filter_map(|i| i["id"].as_str().map(str::to_owned))
+        .collect();
+    crate::access::layout(&mut site, &ids);
     Ok(Json(
-        json!({"site":db::site(&conn,&app.cfg)?,"status":status,"items":result,"updated_at":db::now(),"subscriptions_enabled":app.cfg.smtp.is_some(),"version":crate::VERSION}),
+        json!({"site":site,"status":status,"items":result,"updated_at":db::now(),"subscriptions_enabled":app.cfg.smtp.is_some(),"version":crate::VERSION}),
     ))
 }
 #[derive(Deserialize)]
@@ -317,6 +316,7 @@ async fn history(
     State(app): State<App>,
     Path(id): Path<String>,
     Query(q): Query<HistoryQuery>,
+    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let to = q.to.unwrap_or(db::now());
     let from = q.from.unwrap_or(to - 90 * 86400);
@@ -336,7 +336,12 @@ async fn history(
         [&id],
         |r| r.get(0),
     )?;
-    if !exists {
+    let reader = crate::access::Reader::new(&conn, &app.cfg, &headers)?;
+    let allowed = db::items(&conn)?
+        .iter()
+        .find(|i| i.id == id)
+        .is_some_and(|i| reader.allowed(&i.spec));
+    if !exists || !allowed {
         return Err(ApiError(StatusCode::NOT_FOUND, "Service not found.".into()));
     }
     let publish: bool = conn.query_row(
@@ -351,13 +356,10 @@ async fn history(
         json!({"from":from,"to":to,"precision":precision,"buckets":data,"uptime_basis":"observed_checks"}),
     ))
 }
-async fn public_incidents(State(app): State<App>) -> ApiResult<Json<Value>> {
+async fn public_incidents(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let conn = app.db.lock().unwrap();
-    let mut incidents = db::incidents(&conn, 100)?;
-    for incident in &mut incidents {
-        incident.as_object_mut().unwrap().remove("detail");
-    }
-    Ok(Json(json!(incidents)))
+    let reader = crate::access::Reader::new(&conn, &app.cfg, &headers)?;
+    Ok(Json(json!(crate::access::incidents(&conn, &reader)?)))
 }
 async fn admin_items(State(app): State<App>) -> ApiResult<Json<Value>> {
     Ok(Json(json!(db::items(&app.db.lock().unwrap())?)))
@@ -553,6 +555,22 @@ async fn settings(State(app): State<App>) -> ApiResult<Json<Value>> {
 struct SiteSettings {
     title: String,
     description: String,
+    #[serde(default = "default_view_preferences")]
+    view_preferences: String,
+}
+fn default_view_preferences() -> String {
+    "all".into()
+}
+async fn access_groups(State(app): State<App>) -> ApiResult<Json<Value>> {
+    Ok(Json(crate::access::matrix(&app.db.lock().unwrap())?))
+}
+async fn save_access_groups(
+    State(app): State<App>,
+    Json(groups): Json<Vec<crate::access::Group>>,
+) -> ApiResult<Json<Value>> {
+    let groups = crate::access::normalize(groups)?;
+    app.db.lock().unwrap().execute("INSERT INTO settings(key,value) VALUES('access.groups',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&groups).map_err(anyhow::Error::from)?])?;
+    Ok(Json(json!({"ok":true})))
 }
 async fn save_settings(
     State(app): State<App>,
@@ -561,9 +579,16 @@ async fn save_settings(
     if site.title.trim().is_empty() || site.title.len() > 120 || site.description.len() > 2000 {
         return Err(bad("Invalid site title or description."));
     }
+    if !matches!(site.view_preferences.as_str(), "all" | "signed_in" | "off") {
+        return Err(bad("Invalid view preference policy."));
+    }
     let mut conn = app.db.lock().unwrap();
     let tx = conn.transaction()?;
-    for (key, value) in [("title", site.title), ("description", site.description)] {
+    for (key, value) in [
+        ("title", site.title),
+        ("description", site.description),
+        ("view.preferences", site.view_preferences),
+    ] {
         tx.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value])?;
     }
     tx.commit()?;

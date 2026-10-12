@@ -379,3 +379,12 @@ hot rotation. Native network probes execute on the selected updated node; per-ch
 actions execute on the controller, default to none, and have delay/retry/cooldown/grace
 controls. Push monitors issue their own reusable reporting key, separate from worker
 one-time enrollment. Never invent endpoint support for protocols absent from the guide.
+
+For v0.2 data visibility, configure admin Settings → Data access groups first,
+then set each sensitive check's `visibility` to `authenticated` or `groups` with
+`access_groups`. Public is the compatible default. Verify an anonymous request
+cannot list the check or read `/api/history/<id>`, and a group member can; revoke
+membership and verify immediate denial. Do not trust client-supplied group claims.
+The authentication proxy must sanitize and supply verified identity headers, and
+the backend must be reachable only from that trusted proxy. See `sacho help monitoring`
+for the full visibility/notification boundary and per-identity view-storage policy.

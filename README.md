@@ -22,6 +22,11 @@ an explicit IANA timezone and opt-in controller actions with streaks, delays, re
 cooldowns and post-action grace. Language and display timezone use persistent dropdowns.
 See [the embedded monitoring guide](docs/MONITORING.md) for exact protocol and action semantics.
 
+v0.2 adds per-monitor public/signed-in/group visibility with request-level data
+authorization and administrator-managed email groups. Charts now start at one hour,
+connect expected observations correctly and optionally remember each viewer’s display
+choices. Authentication remains with the trusted proxy.
+
 ## Run
 
 Download `sacho-<target>` from [Releases](https://github.com/ziozzang/sacho/releases),

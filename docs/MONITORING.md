@@ -431,3 +431,60 @@ a native template. Lua adapters are explicitly labeled custom; select them only 
 custom scenarios. Templates open drafts and never enable monitoring by themselves.
 
 SNMPv3 authentication/privacy passwords must have at least eight bytes. Short or empty values fail safely before protocol key derivation.
+
+### v0.2: Remembered charts
+
+The public page starts at **1 hour** with a supported resolution (expanding the
+range if all checks run less often). “Remember view” stores only range, resolution,
+per-monitor series, line style and folds in this browser's local storage. It works
+for signed-in and anonymous visitors, stores no account or authentication tokens,
+and can be disabled to clear these preferences. Language/timezone remain their
+existing separate preferences. Sacho administrator login lifetime is controlled
+by your authentication proxy; this setting does not extend it.
+
+Graphs connect observations within the greater of the bucket width and the
+monitor's configured interval. Longer missing stretches stay disconnected; bars
+still report unobserved buckets as no data. Smooth lines require at least three
+points in a connected segment. If no numeric values exist, a new graph selection
+uses response time. An explicitly selected numeric series still shows no data
+when no numeric values are available. Changing style or series redraws immediately.
+
+### v0.2: authenticated data visibility
+
+Check `visibility` is `public` (the existing default), `authenticated`, or `groups`.
+`access_groups` lists group identifiers for the last mode: matching any group grants
+read access. Administrators configured in the authentication proxy settings can
+read all monitors. Groups never grant administrator/edit/run privileges.
+
+Admin **Settings → Data access groups** maps identifiers to exact member email
+addresses. Members are normalized to lowercase; wildcards and client-supplied group
+claims are not supported. The same group can grant several monitors. Group changes
+and revocations take effect on the next server request without a restart. Missing
+identity, unknown groups and malformed/duplicate identity headers do not grant access.
+
+Every status, history and incident-history request evaluates the current verified
+proxy email against the current group matrix. Unauthorized items are omitted from
+status, layout IDs/titles and incident history; direct history requests return 404.
+The overall health reflects only the caller's visible monitors. Disabled/deleted
+monitors and their history are not publicly exposed. Restricted monitors never
+queue public subscriber email, and pending email jobs recheck the current grade
+before delivery. Administrator-configured webhooks and per-check actions remain
+privileged operational integrations and can receive restricted monitoring events.
+
+This is application-level data authorization built on the existing trusted auth
+proxy, not a replacement for identity verification. The proxy must authenticate
+users, strip inbound identity headers and supply exactly one verified email on all
+public APIs as well as admin routes. Keep Sacho reachable only from that proxy
+(loopback/firewall or an authenticated protected upstream); exposing the backend
+port lets callers impersonate header identities. The deployed loopback setup uses
+this boundary. Protect proxy-to-backend traffic when it crosses hosts. OAuth cookies
+remain managed by the proxy; browser local storage is never an access credential.
+
+View storage policy is configurable in admin Settings: all visitors, signed-in
+visitors only, or off. Preferences are kept separately for anonymous visitors and
+each authenticated identity using a hashed local key, with an optional browser
+opt-out. Only display choices are stored, never graph values, roles, email addresses,
+or authentication tokens. Permission remains server-side even if storage is edited.
+Old check definitions default to public for compatibility; choose a restrictive
+visibility explicitly when onboarding sensitive monitors. Worker binaries older
+than v0.2 may not accept non-default visibility fields; upgrade them together.
