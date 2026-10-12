@@ -4,6 +4,10 @@ A single-binary status page and continuous health monitor. *Sacho* is the origin
 record from which an annal is written: a clear account of what happened to your
 services.
 
+Sacho focuses on monitoring, status/history and reliable notifications. Incident
+management, acknowledgement, ownership, on-call and remediation belong to external
+systems connected by webhooks; they are outside the current product scope.
+
 [한국어](README.ko.md) · [Lua scenarios](docs/LUA.md) · [Deployment](docs/DEPLOYMENT.md)
 
 ![Status page](docs/screenshots/status-desktop.png)
@@ -109,6 +113,11 @@ A webhook contains `event` (`incident.started` or `incident.resolved`),
 receivers should deduplicate that key. SMTP cannot guarantee exactly-once delivery
 if the connection is lost after acceptance. Failed jobs retry up to eight attempts
 with exponential delay; the administrator sees pending, successful and failed jobs.
+
+These event names describe automatically detected outage/recovery intervals and
+are retained for compatibility. `incident_id` correlates start and recovery; it is
+not an incident-management workflow. A receiver can use these events to manage
+incidents in its own system.
 
 ## Updating
 

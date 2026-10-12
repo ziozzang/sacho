@@ -325,3 +325,9 @@ never overwritten, and must stay outside Git/public paths. `import-postgres` and
 `export-postgres` read SACHO_DATABASE_URL privately from the environment. Serving
 still uses SQLite: do not switch a live config to PostgreSQL or enable distributed
 workers until runtime repository and worker qualification are completed.
+
+Product boundary: implement monitoring, current values/history and reliable
+notifications only. External webhook consumers own incident-management workflows,
+on-call and remediation. Existing incident.* events and incident_id are compatible
+outage/recovery signals, not a request to implement incident management. Do not
+expand into general enterprise workflows without an explicit operator request.

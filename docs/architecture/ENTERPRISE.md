@@ -1,4 +1,4 @@
-# Enterprise status and incident platform
+# Production-grade monitoring and status platform
 
 Status: implementation in progress. This is a product architecture and qualification
 record, not a claim that planned features already exist. Runtime configuration,
@@ -19,35 +19,57 @@ Primary feature references:
 [Better Stack status pages](https://betterstack.com/status-page).
 Implement the capabilities independently; do not copy proprietary code or assets.
 
-## Required domains and current gaps
+## Product scope: monitoring only
+
+The governing principle is monitoring, status presentation and reliable outbound
+notifications. Commercial feature research is a reference, not authorization to
+expand into an incident-management or general enterprise workflow product.
+Future expansion requires an explicit user request.
+
+Sacho detects and records health changes, displays current values and history,
+and emits durable webhook/email notifications. External webhook receivers own
+incident creation, investigation, acknowledgement, ownership, escalation, on-call,
+remediation and retrospectives. Do not introduce those workflows, screens or
+state machines into Sacho.
+
+Existing automatic outage/recovery records remain monitoring history. The legacy
+`incidents` table, `/api/incidents`, `incident.started` / `incident.resolved` event
+names and `incident_id` correlation field remain compatible. They do not represent
+an operator-managed incident lifecycle. Renaming them must be versioned and must
+not break deployed receivers, templates or historical snapshots.
+
+## Monitoring domains and current gaps
 
 | Domain | Capability | Current state |
 | --- | --- | --- |
-| Persistence | SQLite/PostgreSQL repositories, versioned migrations, export/import, verification and rollback | SQLite runtime and SQLite/PostgreSQL verified snapshot transfer implemented; PostgreSQL runtime repository pending |
-| Components | Groups, dependencies, regions/products, impact aggregation and manual overrides | Flat checks/groups implemented; richer component model planned |
-| Incidents | investigating/identified/monitoring/resolved, affected components, updates, severity, owner, permalink and retrospective | Automatic start/recovery implemented; editorial workflow planned |
-| Maintenance | One-off/recurring schedules, time zones, component scope, reminders and notification suppression | Planned |
-| Subscribers | Component/channel preferences, verified email, self-service management, locale and consent | Verified email/all-component notifications implemented; preferences planned |
-| Communication | Jinja templates, email/webhooks, signed deliveries, retries, replay, dead-letter queue, RSS/Atom, Slack/Teams presets | Templates/email/JSON hooks/retries implemented; signatures/feed/channel presets planned |
-| Audiences | Public/private/internal pages, scoped visibility, branded custom domains and restricted metrics | One public page/auth-proxy admin implemented; audience model planned |
-| Enterprise access | Teams, SSO/proxy contracts, roles/scopes, API credentials, least privilege and revocation | Email allowlist/proxy implemented; roles/scopes planned |
-| Governance | Durable attributed audit, configuration versions/diffs, approvals, export/import and reversible publishing | Planned |
-| Reliability | SLI/SLO/error budgets, percentiles, maintenance exclusions, retention/downsampling and exports | Observed uptime/mean latency and retention implemented; SLO model planned |
-| Probes | HTTP/TLS/DNS/TCP/push/heartbeat, external Lua/Python/shell, Prometheus/SQL sources, retries and multi-location consensus | HTTP/external scenarios and source examples implemented; remaining protocols/consensus planned |
-| Response | Acknowledgement, routing, escalation, on-call calendars and integrations | Planned |
-| Operations | Backup/restore, backend migration, readiness, signed update rollback, diagnostics/Prometheus metrics and capacity controls | Readiness/update rollback/input encryption implemented; migration/operational metrics planned |
-| Availability | Single-node default; leases and fenced ownership for multi-replica workers, claimed outbox and durable deduplication | Single-node supervisor and native PostgreSQL lease/fencing primitives implemented; worker runtime and outbox claims pending |
-| Experience | Accessible responsive UI, localization, layouts, incident search, live data, embedded LLM runbooks and schemas | Core UI/layouts/live data/runbook implemented; search/richer schemas planned |
+| Persistence | SQLite/PostgreSQL runtime repositories, verified transfer, backup and restore | SQLite runtime and native SQLite/PostgreSQL snapshot transfer implemented; PostgreSQL runtime pending |
+| Monitors | Groups, region labels, dependencies and measured impact | Checks/groups implemented; richer monitoring relationships pending |
+| History | Automatic outage/recovery intervals, scalar values, latency and data freshness | Automatic records and timeline implemented; freshness and diagnostics to improve |
+| Check scheduling | Intervals, deadlines, hysteresis and optional scheduled alert muting | Core scheduling implemented; muting windows pending; no editorial maintenance workflow |
+| Subscriptions | Verified email and monitor/channel preferences | Verified all-monitor email implemented; preferences pending |
+| Delivery | Generic Jinja email/JSON webhooks, signatures, retries, replay and failure visibility | Templates, email, JSON hooks and retries implemented; signatures/replay to improve |
+| Access | Existing auth proxy, protected monitor settings, scoped worker/API credentials | Proxy allowlist implemented; worker/API admission pending; no team/IAM platform |
+| Configuration | Validation, preview, change history and rollback for monitoring settings | Draft execution and validation implemented; durable change history pending; no approval workflow |
+| Metrics | Availability, latency percentiles, source freshness, retention/downsampling and exports | Observed uptime/mean latency and retention implemented; richer metrics pending |
+| Probes | HTTP/TLS/DNS/TCP/push/heartbeat, Lua/Python/shell, Prometheus/SQL sources and multi-location checks | HTTP/external scenarios and source examples implemented; additional probes pending |
+| Operations | Backup/restore, readiness, signed update rollback, diagnostics and capacity controls | Snapshot transfer, readiness/update rollback and encrypted inputs implemented; operational metrics pending |
+| Distribution | Leases, fenced result acceptance, durable runs and claimed delivery jobs | PostgreSQL ownership primitives implemented; worker runtime and job wiring pending |
+| Experience | Accessible English/Korean status UI, layout editor, live refresh and embedded LLM setup guides | Core UI, editor, refresh and guides implemented |
+
+Incident workflows, on-call/escalation, ticketing, remediation, customer-specific
+business portals, general multi-tenant SaaS, billing and compliance certification
+are outside the current scope. Public/private presentation may be revisited only
+when required for a specific monitoring use case; no audience platform is planned.
 
 ## Architecture decisions
 
-1. Domain objects are components, probes, observations, incidents/updates,
-   maintenance windows, pages/audiences, subscriptions, delivery jobs, actors and
-   audit events. Probe health and editorial incident lifecycle are separate.
+1. Domain objects are monitors, probe runs, observations, automatic outage/recovery
+   intervals, subscriptions, delivery jobs, nodes and monitoring configuration.
+   Operator-managed incident state belongs to external webhook consumers.
 2. Repository interfaces own SQL, migration versions, transactions and locking.
    HTTP handlers and schedulers do not contain backend-specific SQL. SQLite is
    the zero-configuration default; PostgreSQL is an explicit external backend.
-3. An incident transition, its audit record and notification intent commit in one
+3. A measured health transition, its history and notification intent commit in one
    transaction. Delivery runs after commit. Stable delivery IDs survive pruning,
    retries, backend migration and crash recovery; transport adapters stay generic.
 4. Migration uses a versioned portable representation preserving identity and
@@ -61,23 +83,25 @@ Implement the capabilities independently; do not copy proprietary code or assets
    Control replicas and outbound-only subordinate workers use the same executable;
    see [distributed execution and Docker qualification](DISTRIBUTED.md) for role,
    protocol, security, failover and container acceptance contracts.
-6. Authentication uses the established identity proxy; scoped authorization and
-   durable actor attribution belong in the application. Secret references resolve
+6. Authentication uses the established identity proxy. Authorization protects
+   monitoring settings and node/API access; it does not introduce team management. Secret references resolve
    from encrypted external inputs; plaintext secrets never enter exported settings,
    public data, templates or audit records.
 7. External scenarios own product-specific integrations. Native reusable protocol
    primitives and templates are permitted; vendor-specific credential/usage code
    stays outside the engine.
-8. Public states must distinguish missing/stale observations, scheduled work,
-   overrides and measured failures. SLO claims disclose sampling and exclusions.
+8. Public states must distinguish missing/stale observations, muted checks and
+   measured failures. Availability claims disclose sampling and exclusions.
 9. Features ship with English/Korean setup instructions, API contracts and actual
    process/browser qualification. A UI control without durable behavior is not done.
 
 ## Implementation and qualification sequence
 
-Persistence/migration → domain lifecycle and maintenance → subscriber/audience
-scopes → durable authorization/audit → delivery security/channel adapters → SLOs
-and probe families → escalation/on-call → fenced multi-replica operations.
+PostgreSQL runtime repositories → durable distributed runs and worker admission →
+fenced result/outbox integration and Docker fault tests → probe families and data
+freshness → monitor-level subscriptions and reliable webhook delivery → monitoring
+configuration recovery and capacity/latency qualification. No incident-management
+or general enterprise workflow phase is included.
 
 Each phase records source commit, schema compatibility, tested scenarios and
 remaining limitations. Validate SQLite and an owned PostgreSQL test database;

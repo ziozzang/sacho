@@ -9,6 +9,11 @@
 사초는 실록의 바탕이 되는 기록입니다. 서비스의 현재 상태와 장애·복구 이력을
 명확하게 기록합니다.
 
+제품 범위는 모니터링·상태와 이력 표시·알림 전달입니다. 장애 관리, 담당자 배정,
+확인·온콜·대응 업무는 웹훅으로 연결한 외부 시스템에서 처리합니다.
+기존 `incident.started`/`incident.resolved`와 `incident_id`는 자동 감지한
+장애·복구의 연결 정보이며 호환성을 위해 유지합니다.
+
 [English](README.md) · [Lua 시나리오](docs/LUA.ko.md) · [배포](docs/DEPLOYMENT.ko.md)
 
 ## 실행

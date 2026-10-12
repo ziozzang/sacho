@@ -4,6 +4,10 @@ Status: design contract; PostgreSQL lease/fencing primitives are implemented and
 qualified in Docker. Distributed execution is not implemented or enabled.
 The current single-node SQLite deployment continues to use its process lock.
 
+Distributed roles execute monitoring checks and deliver notifications only.
+They do not implement incident management, on-call, ticketing or remediation;
+webhook consumers own any such workflows.
+
 ## Roles and storage
 
 - `standalone`: embedded SQLite, web/API, scheduler, probes and deliveries in one
