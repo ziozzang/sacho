@@ -1,0 +1,29 @@
+/* CodeMirror structural rules are nonce-authorized by the per-response CSP. */
+.sacho-lua-editor {
+  min-width: 0;
+  height: 230px;
+  min-height: 130px;
+  resize: vertical;
+  overflow: hidden;
+  border: 1px solid var(--line-bright);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.sacho-lua-editor:focus-within {
+  border-color: var(--cyan);
+  outline: 2px solid var(--cyan-soft);
+}
+.sacho-lua-editor.is-disabled { opacity: .55; }
+.sacho-lua-editor .cm-editor { height: 100%; color: var(--text); background: transparent; font: 12px/1.55 var(--mono); }
+.sacho-lua-editor .cm-scroller { overflow: auto; }
+.sacho-lua-editor .cm-content { min-height: 100%; padding: 10px 0; caret-color: var(--text); }
+.sacho-lua-editor .cm-line { padding: 0 12px; }
+.sacho-lua-editor .cm-gutters { color: var(--faint); background: var(--surface-3); border-right: 1px solid var(--line); }
+.sacho-lua-editor .cm-activeLine, .sacho-lua-editor .cm-activeLineGutter { background: var(--cyan-soft); }
+.sacho-lua-editor .cm-selectionBackground { background: color-mix(in srgb, var(--cyan) 25%, transparent); }
+.sacho-lua-editor .cm-cursor { border-left-color: var(--text); }
+.sacho-lua-editor .cm-tooltip { z-index: 1000; color: var(--text); background: var(--surface); border: 1px solid var(--line-bright); box-shadow: var(--shadow); }
+.sacho-lua-editor .cm-tooltip-autocomplete > ul > li[aria-selected] { color: var(--text); background: var(--cyan-soft); }
+.sacho-lua-editor .cm-completionDetail { color: var(--muted); }
+
+.sacho-lua-editor{--line-bright:#d7dee5;--surface-2:#fafbfc;--surface-3:#f0f3f6;--cyan:#28718c;--cyan-soft:#e8f1f5;--text:#202932;--amber:#b5811d;--faint:#9aa5b0;--mono:ui-monospace,SFMono-Regular,monospace;--shadow:0 8px 30px #20304020}

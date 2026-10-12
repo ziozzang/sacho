@@ -1,0 +1,13 @@
+/target/
+/dist/
+/runtime/
+/web/node_modules
+*.db
+*.db-shm
+*.db-wal
+*.db.lock
+/sacho.toml
+*.env
+*.key
+__pycache__/
+/test-results/

@@ -1,0 +1,36 @@
+# Sacho configuration. Paths are relative to the working directory.
+bind = "127.0.0.1:8080"
+database = "sacho.db"
+public_url = "http://127.0.0.1:8080"
+title = "Sacho"
+description = "Service health, recorded with care."
+retention_days = 100
+max_concurrent_checks = 16
+
+[auth]
+# no-auth is allowed only on loopback. Never expose it through a public proxy.
+mode = "no-auth"
+email_header = "X-Forwarded-Email"
+admins = []
+# For production use mode = "auth-proxy", set admins = ["you@example.com"],
+# and ensure the trusted proxy removes client headers before injecting identity.
+
+[updates]
+enabled = false
+interval_seconds = 21600
+# Optional: public_key = "base64 Ed25519 public key" (default: embedded key)
+# Optional: manifest_url = "https://your-release-host/signed.manifest.json"
+
+# [smtp]
+# host = "smtp.example.com"
+# port = 587
+# from = "Status <status@example.com>"
+# username = "status@example.com"
+# password_env = "SACHO_SMTP_PASSWORD"
+# security = "starttls" # tls for port 465, plain only for loopback test relays
+
+# Optional local subscription usage adapters (no inference requests).
+# [usage]
+# enabled = true
+# home = "/home/your-user"
+# codex_binary = "/home/your-user/.local/bin/codex"

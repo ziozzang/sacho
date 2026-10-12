@@ -1,0 +1,47 @@
+{
+  "http": [
+    {
+      "id": "sacho-admin-api",
+      "host": "sacho.example.com",
+      "path_prefix": "/api/admin/",
+      "priority": 20,
+      "access_mode": "protected",
+      "require_tls": true,
+      "backends": ["http://127.0.0.1:8080"],
+      "auth": {
+        "url": "http://127.0.0.1:9001/_hopae/verify",
+        "request_headers": ["cookie", "user-agent", "accept"],
+        "response_headers": ["x-forwarded-email"],
+        "static_request_headers": {"x-hopae-contract": "1", "x-hopae-gateway-key": {"env": "HANGANG_HOPAE_KEY"}},
+        "forward_response": true,
+        "timeout_ms": 1000
+      }
+    },
+    {
+      "id": "sacho-admin-page",
+      "host": "sacho.example.com",
+      "path_prefix": "/admin",
+      "priority": 20,
+      "access_mode": "protected",
+      "require_tls": true,
+      "backends": ["http://127.0.0.1:8080"],
+      "auth": {
+        "url": "http://127.0.0.1:9001/_hopae/verify",
+        "request_headers": ["cookie", "user-agent", "accept"],
+        "response_headers": ["x-forwarded-email"],
+        "static_request_headers": {"x-hopae-contract": "1", "x-hopae-gateway-key": {"env": "HANGANG_HOPAE_KEY"}},
+        "forward_response": true,
+        "timeout_ms": 1000
+      }
+    },
+    {
+      "id": "sacho-public",
+      "host": "sacho.example.com",
+      "path_prefix": "/",
+      "priority": 0,
+      "access_mode": "public",
+      "require_tls": true,
+      "backends": ["http://127.0.0.1:8080"]
+    }
+  ]
+}
