@@ -100,6 +100,26 @@ pub async fn worker(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
+            let permitted = {
+                let conn = db.lock().unwrap();
+                crate::monitoring::permit_delivery(&conn, id, &kind, &to, &payload)
+            };
+            match permitted {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => {
+                    tracing::error!("notification policy check failed");
+                    continue;
+                }
+            }
+            let refreshed = {
+                let conn = db.lock().unwrap();
+                crate::monitoring::refresh_event(&conn, &mut payload)
+            };
+            if refreshed.is_err() {
+                tracing::error!("refresh monitoring notification failed");
+                continue;
+            }
             if payload["delivery_id"].as_str().is_none() {
                 payload["delivery_id"] = serde_json::json!(id.to_string());
             }

@@ -76,3 +76,14 @@ fn confirmation_links_survive_custom_body_and_defaults_preserve_webhook() -> any
     assert_eq!(templates.webhook(&ctx, &payload)?, payload);
     Ok(())
 }
+
+#[test]
+fn warning_notification_is_not_labeled_as_an_outage() {
+    let context = sacho::templates::context(
+        "Site",
+        "https://example.com",
+        &serde_json::json!({"event":"incident.started","status":"degraded"}),
+    );
+    assert_eq!(context["event_name"], "Warning / 주의");
+    assert_eq!(context["status_name"], "Warning / 주의");
+}

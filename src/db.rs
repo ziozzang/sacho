@@ -23,12 +23,20 @@ pub struct CheckSpec {
     pub timeout_seconds: u64,
     pub expected_status: u16,
     pub headers_env: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub required_env: Vec<String>,
     pub expected_exit: i32,
     pub contains: String,
     pub json_pointer: String,
     pub comparison: String,
     pub threshold: Option<f64>,
     pub degraded_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_rules: Option<crate::monitoring::ValueRules>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub publish_trend: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub trend_pointer: String,
     pub failure_threshold: u32,
     #[serde(skip_serializing_if = "default_failure_status")]
     pub failure_status: String,
@@ -57,12 +65,16 @@ impl Default for CheckSpec {
             timeout_seconds: 10,
             expected_status: 200,
             headers_env: Default::default(),
+            required_env: Vec::new(),
             expected_exit: 0,
             contains: String::new(),
             json_pointer: String::new(),
             comparison: "lt".into(),
             threshold: None,
             degraded_ms: None,
+            value_rules: None,
+            publish_trend: false,
+            trend_pointer: String::new(),
             failure_threshold: 1,
             failure_status: "outage".into(),
             recovery_threshold: 1,
@@ -77,6 +89,14 @@ impl Default for CheckSpec {
 }
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
+        if let Some(rules) = &self.value_rules {
+            rules.validate()?;
+        }
+        ensure!(
+            self.trend_pointer.len() <= 1024
+                && (self.trend_pointer.is_empty() || self.trend_pointer.starts_with('/')),
+            "invalid trend JSON pointer"
+        );
         ensure!(
             matches!(self.failure_status.as_str(), "outage" | "degraded"),
             "failure status must be outage or degraded"
@@ -127,6 +147,13 @@ impl CheckSpec {
         ensure!(
             (100..=599).contains(&self.expected_status),
             "invalid expected HTTP status"
+        );
+        ensure!(
+            self.required_env.len() <= 64
+                && self.required_env.iter().all(|n| !n.is_empty()
+                    && n.len() <= 128
+                    && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')),
+            "invalid required environment names"
         );
         ensure!(self.headers_env.len() <= 16, "too many HTTP headers");
         for (header, env) in &self.headers_env {
@@ -190,6 +217,9 @@ pub fn open(path: &str) -> Result<Db> {
     CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY, spec TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'unknown', last_check INTEGER, latency_ms INTEGER, failures INTEGER NOT NULL DEFAULT 0, successes INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS checks(id INTEGER PRIMARY KEY, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, at INTEGER NOT NULL, status TEXT NOT NULL, latency_ms INTEGER NOT NULL, output TEXT NOT NULL, detail TEXT NOT NULL, metric_value REAL, display_value TEXT);
     CREATE INDEX IF NOT EXISTS checks_time ON checks(item_id,at);
+    CREATE INDEX IF NOT EXISTS checks_latest ON checks(item_id,id DESC);
+    CREATE INDEX IF NOT EXISTS checks_healthy_time ON checks(item_id,at DESC) WHERE status='operational';
+    CREATE INDEX IF NOT EXISTS checks_display_latest ON checks(item_id,id DESC) WHERE display_value IS NOT NULL AND display_value != '';
     CREATE TABLE IF NOT EXISTS incidents(id TEXT PRIMARY KEY, item_id TEXT REFERENCES items(id) ON DELETE SET NULL, name TEXT NOT NULL, status TEXT NOT NULL, opened_at INTEGER NOT NULL, resolved_at INTEGER, detail TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS incidents_time ON incidents(opened_at);
     CREATE TABLE IF NOT EXISTS subscribers(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, token TEXT UNIQUE NOT NULL, verified INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
@@ -235,7 +265,13 @@ pub fn save(conn: &mut Connection, id: Option<String>, spec: &CheckSpec) -> Resu
     spec.validate()?;
     let encoded = serde_json::to_string(spec)?;
     if let Some(id) = id {
+        let previous: String =
+            conn.query_row("SELECT spec FROM items WHERE id=?", [&id], |r| r.get(0))?;
+        let previous: CheckSpec = serde_json::from_str(&previous)?;
         let tx = conn.transaction()?;
+        if crate::monitoring::metric_pointer(&previous) != crate::monitoring::metric_pointer(spec) {
+            tx.execute("UPDATE checks SET metric_value=NULL WHERE item_id=?", [&id])?;
+        }
         ensure!(
             tx.execute(
                 "UPDATE items SET spec=?,revision=revision+1,failures=0,successes=0 WHERE id=?",
@@ -298,16 +334,8 @@ pub(crate) fn record_transaction(
         old.as_str()
     };
     let at = now();
-    let metric = serde_json::from_str::<Value>(&obs.output)
-        .ok()
-        .and_then(|v| {
-            let n = if item.spec.json_pointer.is_empty() {
-                v.as_f64()
-            } else {
-                v.pointer(&item.spec.json_pointer).and_then(Value::as_f64)
-            };
-            n.filter(|n| n.is_finite())
-        });
+    let metric =
+        crate::monitoring::number(&obs.output, crate::monitoring::metric_pointer(&item.spec));
     let display = display_value(&item.spec, &obs.output);
     tx.execute("INSERT INTO checks(item_id,at,status,latency_ms,output,detail,metric_value,display_value) VALUES(?,?,?,?,?,?,?,?)",params![item.id,at,obs.status,obs.latency_ms,obs.output,obs.detail,metric,display])?;
     tx.execute(
@@ -372,11 +400,11 @@ fn enqueue_event(conn: &Connection, event: Value) -> Result<()> {
         let (email, token) = row?;
         let mut payload = event.clone();
         payload["unsubscribe_token"] = json!(token);
-        queue(conn, "email", &email, &payload)?;
+        crate::monitoring::queue_monitor(conn, "email", &email, &payload)?;
     }
     let mut stmt = conn.prepare("SELECT url FROM webhooks WHERE enabled=1")?;
     for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
-        queue(conn, "webhook", &row?, &event)?;
+        crate::monitoring::queue_monitor(conn, "webhook", &row?, &event)?;
     }
     Ok(())
 }

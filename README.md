@@ -12,6 +12,8 @@ systems connected by webhooks; they are outside the current product scope.
 
 ![Status page](docs/screenshots/status-desktop.png)
 
+![Admin workspace](docs/screenshots/admin-desktop.png)
+
 ## Run
 
 Download `sacho-<target>` from [Releases](https://github.com/ziozzang/sacho/releases),
@@ -38,6 +40,10 @@ PostgreSQL lease/fencing primitives, plus outbound remote monitoring workers.
 The serving backend remains SQLite; one controller manages multiple remote network
 locations. Multi-controller HA is deferred. See [remote workers](docs/REMOTE-WORKERS.md). See [persistence](docs/DATABASE.md)
 (`sacho help storage`) and the [enterprise implementation inventory](docs/architecture/ENTERPRISE.md).
+
+For threshold rules, charts, agent health, setup validation and notification
+controls, see [monitoring setup](docs/MONITORING.md), also embedded as
+`sacho help monitoring`.
 
 ## Capabilities
 

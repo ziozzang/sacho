@@ -225,7 +225,14 @@ async fn history_buckets_keep_no_data_and_hide_private_numeric_values() -> anyho
     let app = app(false);
     let id = {
         let mut conn = app.db.lock().unwrap();
-        let id = db::save(&mut conn, None, &spec())?;
+        let id = db::save(
+            &mut conn,
+            None,
+            &CheckSpec {
+                publish_value: true,
+                ..spec()
+            },
+        )?;
         let item = db::items(&conn)?.remove(0);
         let mut obs = observation("operational");
         obs.output = "42".into();

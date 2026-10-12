@@ -197,22 +197,18 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
         if detail.is_empty()
             && let Some(threshold) = item.spec.threshold
         {
-            let value: serde_json::Value = serde_json::from_str(&output)
-                .context("output must be JSON for numeric condition")?;
-            let value = if item.spec.json_pointer.is_empty() {
-                &value
-            } else {
-                value
-                    .pointer(&item.spec.json_pointer)
-                    .context("JSON pointer missing")?
-            };
-            let n = value.as_f64().context("condition value must be numeric")?;
-            let passed = compare(n, threshold, &item.spec.comparison);
-            if !passed {
-                detail = format!(
-                    "numeric condition failed: {n} {} {threshold}",
-                    item.spec.comparison
-                );
+            match crate::monitoring::number(&output, &item.spec.json_pointer) {
+                Some(n) if !compare(n, threshold, &item.spec.comparison) => {
+                    detail = format!(
+                        "numeric condition failed: {n} {} {threshold}",
+                        item.spec.comparison
+                    );
+                }
+                Some(_) => {}
+                None => {
+                    detail =
+                        "numeric condition requires a finite JSON number at its pointer".into();
+                }
             }
         }
         Ok::<_, anyhow::Error>((output, detail))
@@ -224,7 +220,7 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
             while output.len() > OUTPUT_LIMIT {
                 output.pop();
             }
-            let status = if !detail.is_empty() {
+            let mut status = if !detail.is_empty() {
                 item.spec.failure_status.as_str()
             } else if item
                 .spec
@@ -235,11 +231,26 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
             } else {
                 "operational"
             };
-            let detail = if status == "degraded" && detail.is_empty() {
+            let mut detail = if status == "degraded" && detail.is_empty() {
                 "response time exceeded degraded threshold".into()
             } else {
                 detail
             };
+            if let Some(rules) = &item.spec.value_rules {
+                if let Some(value) = crate::monitoring::number(&output, &rules.pointer) {
+                    let severity = rules.severity(value);
+                    if status != "outage"
+                        && (severity == "outage"
+                            || (severity == "degraded" && status == "operational"))
+                    {
+                        status = severity;
+                        detail = format!("value threshold crossed: {value}");
+                    }
+                } else if status == "operational" {
+                    status = item.spec.failure_status.as_str();
+                    detail = "value rule requires a finite JSON number".into();
+                }
+            }
             Observation {
                 status: status.into(),
                 latency_ms,
@@ -317,4 +328,12 @@ pub async fn scheduler(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>
             }
         }
     }
+}
+
+pub fn validate_lua(source: &str) -> Result<()> {
+    let lua = mlua::Lua::new();
+    lua.load(source)
+        .into_function()
+        .map_err(|_| anyhow::anyhow!("Lua syntax is invalid"))?;
+    Ok(())
 }

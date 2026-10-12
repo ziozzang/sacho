@@ -32,13 +32,13 @@ pub fn context(site_title: &str, base: &str, payload: &Value) -> Value {
     let status = payload["status"].as_str().unwrap_or("unknown");
     let status_name = match status {
         "operational" => "Operational / 정상 운영",
-        "degraded" => "Degraded / 성능 저하",
+        "degraded" => "Warning / 주의",
         "outage" => "Outage / 장애",
         _ => "Unknown / 확인 대기",
     };
     let at = payload["at"].as_i64().unwrap_or_else(crate::db::now);
     let base = base.trim_end_matches('/');
-    json!({"site_title":site_title,"public_url":base,"service_name":payload["name"].as_str().unwrap_or("Service"),"status":status,"status_name":status_name,"event":event,"event_name":if verifying {"Confirm subscription / 구독 확인"} else if recovered {"Recovered / 복구"} else {"Incident / 장애"},"recovered":recovered,"incident_id":payload["incident_id"].as_str().unwrap_or(""),"item_id":payload["item_id"].as_str().unwrap_or(""),"delivery_id":payload["delivery_id"].as_str().unwrap_or(""),"at":at,"time":chrono::DateTime::from_timestamp(at,0).map(|t|t.to_rfc3339()).unwrap_or_default(),"group":payload["group"].as_str().unwrap_or(""),"description":payload["description"].as_str().unwrap_or(""),"display_value":payload["display_value"].as_str().unwrap_or(""),"display_label":payload["display_label"].as_str().unwrap_or(""),"metric_unit":payload["metric_unit"].as_str().unwrap_or(""),"latency_ms":payload["latency_ms"].as_u64(),"confirm_url":if verifying {format!("{base}/subscription/confirm?token={}",payload["token"].as_str().unwrap_or_default())} else {String::new()},"unsubscribe_url":if verifying {String::new()} else {format!("{base}/subscription/unsubscribe?token={}",payload["unsubscribe_token"].as_str().unwrap_or_default())}})
+    json!({"site_title":site_title,"public_url":base,"service_name":payload["name"].as_str().unwrap_or("Service"),"status":status,"status_name":status_name,"event":event,"event_name":if verifying {"Confirm subscription / 구독 확인"} else if recovered {"Recovered / 복구"} else if status=="degraded" {"Warning / 주의"} else {"Incident / 장애"},"recovered":recovered,"incident_id":payload["incident_id"].as_str().unwrap_or(""),"item_id":payload["item_id"].as_str().unwrap_or(""),"delivery_id":payload["delivery_id"].as_str().unwrap_or(""),"at":at,"time":chrono::DateTime::from_timestamp(at,0).map(|t|t.to_rfc3339()).unwrap_or_default(),"group":payload["group"].as_str().unwrap_or(""),"description":payload["description"].as_str().unwrap_or(""),"display_value":payload["display_value"].as_str().unwrap_or(""),"display_label":payload["display_label"].as_str().unwrap_or(""),"metric_unit":payload["metric_unit"].as_str().unwrap_or(""),"latency_ms":payload["latency_ms"].as_u64(),"confirm_url":if verifying {format!("{base}/subscription/confirm?token={}",payload["token"].as_str().unwrap_or_default())} else {String::new()},"unsubscribe_url":if verifying {String::new()} else {format!("{base}/subscription/unsubscribe?token={}",payload["unsubscribe_token"].as_str().unwrap_or_default())}})
 }
 struct Limited(Vec<u8>);
 impl Write for Limited {

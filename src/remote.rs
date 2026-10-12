@@ -247,12 +247,45 @@ pub fn complete(
 pub fn router() -> Router<crate::server::App> {
     Router::new()
         .route("/api/workers/{node}/claim", post(claim_handler))
+        .route("/api/workers/{node}/heartbeat", post(heartbeat_handler))
         .route("/api/workers/{node}/result", post(result_handler))
         .route("/api/workers/enroll", post(enroll_handler))
         .route(
             "/api/workers/{node}/registration",
             post(registration_handler),
         )
+}
+async fn heartbeat_handler(
+    State(app): State<crate::server::App>,
+    Path(node): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<Claim>,
+) -> RemoteResponse {
+    let conn = app.db.lock().unwrap();
+    authorize(&conn, &app.cfg, &node, &headers)?;
+    if request.protocol != 1 {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "Unsupported worker protocol",
+        ));
+    }
+    crate::monitoring::heartbeat(
+        &conn,
+        &node,
+        headers
+            .get("x-sacho-worker-version")
+            .and_then(|v| v.to_str().ok()),
+        headers
+            .get("x-sacho-worker-platform")
+            .and_then(|v| v.to_str().ok()),
+    )
+    .map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Worker heartbeat unavailable",
+        )
+    })?;
+    response(&conn, serde_json::json!({"accepted":true}))
 }
 async fn claim_handler(
     State(app): State<crate::server::App>,
@@ -268,6 +301,22 @@ async fn claim_handler(
             "Unsupported worker protocol",
         ));
     }
+    crate::monitoring::heartbeat(
+        &conn,
+        &node,
+        headers
+            .get("x-sacho-worker-version")
+            .and_then(|v| v.to_str().ok()),
+        headers
+            .get("x-sacho-worker-platform")
+            .and_then(|v| v.to_str().ok()),
+    )
+    .map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Worker heartbeat unavailable",
+        )
+    })?;
     let result = claim(&mut conn, &node, allow_scripts && request.allow_scripts).map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -427,8 +476,19 @@ pub(crate) fn worker_client(worker: &WorkerConfig) -> Result<reqwest::Client> {
         .redirect(reqwest::redirect::Policy::none());
     if let Some(identity) = &worker.controller_id {
         Uuid::parse_str(identity)?;
+        // Controller identity and non-secret worker metadata travel in headers.
+        builder = builder.default_headers({
+            let mut h = HeaderMap::new();
+            h.insert("x-sacho-controller-id", identity.parse()?);
+            h.insert("x-sacho-worker-version", crate::VERSION.parse()?);
+            h.insert("x-sacho-worker-platform", crate::TARGET.parse()?);
+            h
+        });
+    }
+    if worker.controller_id.is_none() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-sacho-controller-id", identity.parse()?);
+        headers.insert("x-sacho-worker-version", crate::VERSION.parse()?);
+        headers.insert("x-sacho-worker-platform", crate::TARGET.parse()?);
         builder = builder.default_headers(headers);
     }
     if let Some(ca) = &worker.ca_file {
@@ -597,5 +657,21 @@ pub async fn run(path: &FilePath) -> Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
-    tokio::select! { result=work => result, _=crate::supervisor::cancelled(&mut stop) => Ok(()) }
+    let heartbeat = async {
+        let mut tick = tokio::time::interval(Duration::from_secs(10));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            let _ = client
+                .post(format!("{base}/api/workers/{}/heartbeat", worker.node_id))
+                .bearer_auth(&*token)
+                .json(&Claim {
+                    protocol: 1,
+                    allow_scripts: worker.allow_scripts,
+                })
+                .send()
+                .await;
+        }
+    };
+    tokio::select! { result=work => result, _=crate::supervisor::cancelled(&mut stop) => Ok(()), _=heartbeat=>Ok(()) }
 }

@@ -38,6 +38,10 @@ cargo build --locked --release
 선택적으로 `python3`, 쉘 검사는 `/bin/sh`를 사용합니다. 설정 파일과 SQLite
 데이터 파일은 실행 파일과 별도로 보관합니다.
 
+수치 임계값·추이·워커 상태·설정 검증·알림 억제는
+[모니터링 설정](docs/MONITORING.ko.md)과 내장 `sacho help monitoring --language ko`를
+참조하세요.
+
 ## 기능
 
 - 한국어·영어 반응형 상태 화면, 서비스별 가용성, 장애·복구 이력.

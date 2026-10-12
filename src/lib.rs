@@ -15,3 +15,7 @@ pub mod secrets;
 pub mod storage;
 pub mod templates;
 pub mod worker_join;
+
+pub mod monitoring;
+
+pub mod setup;

@@ -357,3 +357,7 @@ public messages are exposed, never raw errors or container environment values.
 Quota or collector checks can set `failure_status="degraded"` to signal warning
 instead of an availability outage on condition failures, errors and timeouts.
 The default remains `outage`; use updated workers for these optional fields.
+
+Monitoring thresholds, scalar charts, freshness, worker heartbeats, setup catalogue,
+safe metadata export and notification delay/maintenance are documented offline
+in `sacho help monitoring` (English/Korean). Configure these through admin.

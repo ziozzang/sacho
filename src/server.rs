@@ -107,6 +107,13 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/items/{id}/run", post(run_item))
         .route("/api/admin/items/{id}/logs", get(logs))
         .route("/api/admin/test", post(test_draft))
+        .route("/api/admin/validate", post(validate_draft))
+        .route("/api/admin/examples", get(examples))
+        .route("/api/admin/export", get(export_settings))
+        .route(
+            "/api/admin/notification-policy",
+            get(notification_policy).put(save_notification_policy),
+        )
         .route(
             "/api/admin/templates",
             get(get_templates).put(save_templates),
@@ -223,9 +230,9 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
         let effective = if stale { "unknown" } else { &item.status };
         let display = if item.spec.publish_value {
             conn.query_row(
-                "SELECT display_value,at,id FROM checks WHERE item_id=? AND display_value IS NOT NULL AND display_value != '' ORDER BY id DESC LIMIT 1",
+                "SELECT display_value,at,id,output FROM checks WHERE item_id=? AND display_value IS NOT NULL AND display_value != '' ORDER BY id DESC LIMIT 1",
                 [&item.id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?,r.get::<_, String>(3)?)),
             ).optional()?
         } else {
             None
@@ -240,10 +247,37 @@ async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
         let value_stale = display
             .as_ref()
             .is_some_and(|v| stale || latest.as_ref().is_none_or(|c| c.0 != v.2));
+        let last_success: Option<i64> = conn.query_row(
+            "SELECT MAX(at) FROM checks WHERE item_id=? AND status='operational'",
+            [&item.id],
+            |r| r.get(0),
+        )?;
+        let next_check = item
+            .last_check
+            .map(|at| at + item.spec.interval_seconds as i64)
+            .unwrap_or(db::now());
+        let value_severity = if item.spec.publish_value {
+            item.spec.value_rules.as_ref().and_then(|rules| {
+                display
+                    .as_ref()
+                    .and_then(|v| crate::monitoring::number(&v.3, &rules.pointer))
+                    .map(|n| rules.severity(n))
+            })
+        } else {
+            None
+        };
+        let public_rules = if item.spec.publish_trend {
+            item.spec
+                .value_rules
+                .as_ref()
+                .map(|r| json!({"direction":r.direction,"warning":r.warning,"critical":r.critical}))
+        } else {
+            None
+        };
         let message = latest
             .as_ref()
             .and_then(|c| db::public_message(&item.spec, &c.1));
-        result.push(json!({"id":item.id,"name":item.spec.name,"description":item.spec.description,"group":item.spec.group,"status":effective,"last_check":item.last_check,"latency_ms":item.latency_ms,"interval_seconds":item.spec.interval_seconds,"publish_value":item.spec.publish_value,"display_value":display.as_ref().map(|v| &v.0),"display_value_at":display.as_ref().map(|v| v.1),"display_value_stale":value_stale,"public_message":message,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit}));
+        result.push(json!({"id":item.id,"name":item.spec.name,"description":item.spec.description,"group":item.spec.group,"status":effective,"last_check":item.last_check,"latency_ms":item.latency_ms,"interval_seconds":item.spec.interval_seconds,"last_success":last_success,"next_check":next_check,"freshness":if stale{"stale"}else{"fresh"},"value_severity":value_severity,"value_thresholds":public_rules,"publish_trend":item.spec.publish_trend,"publish_value":item.spec.publish_value,"display_value":display.as_ref().map(|v| &v.0),"display_value_at":display.as_ref().map(|v| v.1),"display_value_stale":value_stale,"public_message":message,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit}));
     }
     let status = if result.iter().any(|i| i["status"] == "outage") {
         "outage"
@@ -291,12 +325,12 @@ async fn history(
         return Err(ApiError(StatusCode::NOT_FOUND, "Service not found.".into()));
     }
     let publish: bool = conn.query_row(
-        "SELECT json_extract(spec,'$.publish_value')=1 FROM items WHERE id=?",
+        "SELECT COALESCE(json_extract(spec,'$.publish_trend'),0)=1 FROM items WHERE id=?",
         [&id],
         |r| r.get(0),
     )?;
-    let mut stmt=conn.prepare("SELECT (at / ? )*?,COUNT(*),SUM(status='operational'),AVG(latency_ms),MAX(CASE status WHEN 'outage' THEN 2 WHEN 'degraded' THEN 1 ELSE 0 END),CASE WHEN ? THEN AVG(metric_value) ELSE NULL END FROM checks WHERE item_id=? AND at>=? AND at<? GROUP BY at / ? ORDER BY at / ?")?;
-    let data=stmt.query_map(params![precision,precision,publish,id,from,to,precision,precision],|r|Ok(json!({"at":r.get::<_,i64>(0)?,"samples":r.get::<_,i64>(1)?,"healthy":r.get::<_,i64>(2)?,"latency_ms":r.get::<_,f64>(3)?,"severity":r.get::<_,i64>(4)?,"metric_value":r.get::<_,Option<f64>>(5)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let mut stmt=conn.prepare("SELECT (at / ? )*?,COUNT(*),SUM(status='operational'),AVG(latency_ms),MAX(CASE status WHEN 'outage' THEN 2 WHEN 'degraded' THEN 1 ELSE 0 END),CASE WHEN ? THEN AVG(metric_value) ELSE NULL END,CASE WHEN ? THEN MIN(metric_value) ELSE NULL END,CASE WHEN ? THEN MAX(metric_value) ELSE NULL END FROM checks WHERE item_id=? AND at>=? AND at<? GROUP BY at / ? ORDER BY at / ?")?;
+    let data=stmt.query_map(params![precision,precision,publish,publish,publish,id,from,to,precision,precision],|r|Ok(json!({"at":r.get::<_,i64>(0)?,"samples":r.get::<_,i64>(1)?,"healthy":r.get::<_,i64>(2)?,"latency_ms":r.get::<_,f64>(3)?,"severity":r.get::<_,i64>(4)?,"metric_value":r.get::<_,Option<f64>>(5)?,"metric_min":r.get::<_,Option<f64>>(6)?,"metric_max":r.get::<_,Option<f64>>(7)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
     // Empty buckets are deliberately absent. The UI renders these as no data.
     Ok(Json(
         json!({"from":from,"to":to,"precision":precision,"buckets":data,"uptime_basis":"observed_checks"}),
@@ -339,6 +373,16 @@ async fn workers(State(app): State<App>) -> ApiResult<Json<Value>> {
             .filter(|item| item.spec.worker == worker.id)
             .collect();
         nodes.push(json!({"id":worker.id,"label":worker.label,"allow_scripts":worker.allow_scripts,"monitors":assigned.len(),"last_result":assigned.iter().filter_map(|item|item.last_check).max(),"registered_at":worker.registered_at,"version":worker.version,"platform":worker.platform,"revoked":worker.revoked,"source":"bootstrap"}));
+    }
+    for node in &mut nodes {
+        let health = crate::monitoring::worker_health(
+            &conn,
+            node["id"].as_str().unwrap(),
+            node["revoked"].as_bool().unwrap_or(false),
+        )?;
+        node.as_object_mut()
+            .unwrap()
+            .extend(health.as_object().unwrap().clone());
     }
     Ok(Json(json!(nodes)))
 }
@@ -402,6 +446,9 @@ async fn create_item(
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
+    if spec.kind == "lua" {
+        crate::engine::validate_lua(&spec.target).map_err(|_| bad("Lua syntax is invalid"))?;
+    }
     validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
     let id = db::save(&mut app.db.lock().unwrap(), None, &spec)?;
     Ok(Json(json!({"id":id})))
@@ -412,6 +459,9 @@ async fn update_item(
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
+    if spec.kind == "lua" {
+        crate::engine::validate_lua(&spec.target).map_err(|_| bad("Lua syntax is invalid"))?;
+    }
     validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
     db::save(&mut app.db.lock().unwrap(), Some(id), &spec)?;
     Ok(Json(json!({"ok":true})))
@@ -766,7 +816,7 @@ async fn test_draft(State(app): State<App>, Json(spec): Json<CheckSpec>) -> ApiR
     };
     let obs = crate::engine::probe_with_config(&item, &app.cfg).await;
     Ok(Json(
-        json!({"status":obs.status,"latency_ms":obs.latency_ms,"detail":obs.detail,"display_value":db::display_value(&item.spec,&obs.output),"output":obs.output}),
+        json!({"status":obs.status,"latency_ms":obs.latency_ms,"detail":obs.detail,"display_value":db::display_value(&item.spec,&obs.output),"validation":crate::setup::validate(&item.spec,&app.cfg),"numeric_value":crate::monitoring::number(&obs.output,crate::monitoring::metric_pointer(&item.spec)),"public_message":db::public_message(&item.spec,&obs.output),"output":obs.output}),
     ))
 }
 #[derive(Deserialize)]
@@ -855,4 +905,41 @@ async fn preview_templates(Json(draft): Json<TemplatePreview>) -> ApiResult<Json
     Ok(Json(
         json!({"subject":subject,"body":body,"webhook":webhook}),
     ))
+}
+
+async fn validate_draft(
+    State(app): State<App>,
+    Json(spec): Json<CheckSpec>,
+) -> ApiResult<Json<Value>> {
+    let mut report = crate::setup::validate(&spec, &app.cfg);
+    if let Err(error) = validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec) {
+        report["valid"] = json!(false);
+        report["errors"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(error.1));
+    }
+    Ok(Json(report))
+}
+async fn examples() -> Json<Value> {
+    Json(crate::setup::catalogue())
+}
+async fn export_settings(State(app): State<App>) -> ApiResult<Json<Value>> {
+    Ok(Json(crate::setup::export(
+        &app.db.lock().unwrap(),
+        &app.cfg,
+    )?))
+}
+async fn notification_policy(State(app): State<App>) -> ApiResult<Json<Value>> {
+    Ok(Json(json!(crate::monitoring::policy(
+        &app.db.lock().unwrap()
+    )?)))
+}
+async fn save_notification_policy(
+    State(app): State<App>,
+    Json(policy): Json<crate::monitoring::NotificationPolicy>,
+) -> ApiResult<Json<Value>> {
+    policy.validate().map_err(|e| bad(&e.to_string()))?;
+    app.db.lock().unwrap().execute("INSERT INTO settings(key,value) VALUES('notification_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&policy).map_err(anyhow::Error::from)?])?;
+    Ok(Json(json!({"ok":true})))
 }

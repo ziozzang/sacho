@@ -14,6 +14,8 @@ def main():
    expected=(ROOT/f'docs/SETUP-HOWTO{suffix}.md').read_text()
    assert run('help','setup','--language',language).stdout==expected
    assert run('setup-howto','--language',language).stdout==expected
+  for language,suffix in [('en',''),('ko','.ko')]:
+   assert run('help','monitoring','--language',language).stdout==(ROOT/f'docs/MONITORING{suffix}.md').read_text()
   assert 'Run the status page' in run('help','serve').stdout
   run('help','nonexistent',ok=False);run('help','setup','--language','invalid',ok=False)
   for name in ('prometheus','postgresql','external-command','docker'):

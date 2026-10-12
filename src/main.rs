@@ -272,6 +272,13 @@ async fn main() -> Result<()> {
                     GuideLanguage::Ko => include_str!("../docs/REMOTE-WORKERS.ko.md"),
                 };
                 std::io::stdout().write_all(guide.as_bytes())?;
+            } else if topic.as_deref() == Some("monitoring") {
+                use std::io::Write;
+                let guide = match language {
+                    GuideLanguage::En => include_str!("../docs/MONITORING.md"),
+                    GuideLanguage::Ko => include_str!("../docs/MONITORING.ko.md"),
+                };
+                std::io::stdout().write_all(guide.as_bytes())?;
             } else if topic.as_deref() == Some("storage") {
                 use std::io::Write;
                 let guide = match language {
