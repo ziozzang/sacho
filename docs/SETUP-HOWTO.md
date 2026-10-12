@@ -331,3 +331,10 @@ notifications only. External webhook consumers own incident-management workflows
 on-call and remediation. Existing incident.* events and incident_id are compatible
 outage/recovery signals, not a request to implement incident management. Do not
 expand into general enterprise workflows without an explicit operator request.
+
+Remote monitoring uses one SQLite controller and outbound `sacho worker` processes.
+`sacho help workers` embeds the complete guide and `sacho example remote-worker`
+prints its configuration. Register per-node token references in remote_workers;
+assign a monitor's worker ID in the editor. Scripts require opt-in on both ends;
+inputs stay local to workers. Remote draft tests are unavailable, and saved checks
+never silently execute locally. Multi-controller HA remains deferred.

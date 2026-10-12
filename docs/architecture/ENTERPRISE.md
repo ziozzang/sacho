@@ -43,7 +43,7 @@ not break deployed receivers, templates or historical snapshots.
 | Domain | Capability | Current state |
 | --- | --- | --- |
 | Persistence | SQLite/PostgreSQL runtime repositories, verified transfer, backup and restore | SQLite runtime and native SQLite/PostgreSQL snapshot transfer implemented; PostgreSQL runtime pending |
-| Monitors | Groups, region labels, dependencies and measured impact | Checks/groups implemented; richer monitoring relationships pending |
+| Monitors | Groups and explicit remote execution locations | Checks/groups implemented; remote worker selection implemented; dependency/consensus engines deferred |
 | History | Automatic outage/recovery intervals, scalar values, latency and data freshness | Automatic records and timeline implemented; freshness and diagnostics to improve |
 | Check scheduling | Intervals, deadlines, hysteresis and optional scheduled alert muting | Core scheduling implemented; muting windows pending; no editorial maintenance workflow |
 | Subscriptions | Verified email and monitor/channel preferences | Verified all-monitor email implemented; preferences pending |
@@ -53,7 +53,7 @@ not break deployed receivers, templates or historical snapshots.
 | Metrics | Availability, latency percentiles, source freshness, retention/downsampling and exports | Observed uptime/mean latency and retention implemented; richer metrics pending |
 | Probes | HTTP/TLS/DNS/TCP/push/heartbeat, Lua/Python/shell, Prometheus/SQL sources and multi-location checks | HTTP/external scenarios and source examples implemented; additional probes pending |
 | Operations | Backup/restore, readiness, signed update rollback, diagnostics and capacity controls | Snapshot transfer, readiness/update rollback and encrypted inputs implemented; operational metrics pending |
-| Distribution | Leases, fenced result acceptance, durable runs and claimed delivery jobs | PostgreSQL ownership primitives implemented; worker runtime and job wiring pending |
+| Distribution | Remote network locations, leased assignments, revision/run fencing and durable result acceptance | Single-controller SQLite remote workers and Docker fault tests implemented; PostgreSQL HA and independent delivery claims deferred |
 | Experience | Accessible English/Korean status UI, layout editor, live refresh and embedded LLM setup guides | Core UI, editor, refresh and guides implemented |
 
 Incident workflows, on-call/escalation, ticketing, remediation, customer-specific
@@ -80,7 +80,8 @@ when required for a specific monitoring use case; no audience platform is planne
 5. The single-node process lock remains the default ownership model. PostgreSQL
    availability does not imply active-active readiness. Multi-replica execution
    requires leases, fencing and atomic job claims before claiming HA support.
-   Control replicas and outbound-only subordinate workers use the same executable;
+   One controller and outbound-only subordinate workers use the same executable;
+   multiple control replicas are deferred until a concrete need exists.
    see [distributed execution and Docker qualification](DISTRIBUTED.md) for role,
    protocol, security, failover and container acceptance contracts.
 6. Authentication uses the established identity proxy. Authorization protects
@@ -97,10 +98,10 @@ when required for a specific monitoring use case; no audience platform is planne
 
 ## Implementation and qualification sequence
 
-PostgreSQL runtime repositories → durable distributed runs and worker admission →
-fenced result/outbox integration and Docker fault tests → probe families and data
-freshness → monitor-level subscriptions and reliable webhook delivery → monitoring
-configuration recovery and capacity/latency qualification. No incident-management
+Polish single-controller remote checks and recovery → probe/source freshness →
+monitor-level subscriptions and reliable webhook delivery → monitoring configuration
+recovery and capacity/latency qualification → optional PostgreSQL runtime repository.
+Multi-controller HA is deferred. No incident-management
 or general enterprise workflow phase is included.
 
 Each phase records source commit, schema compatibility, tested scenarios and
@@ -129,3 +130,29 @@ contention matrix. The musl single-executable build is retained. No Actions run,
 production database migration or distributed runtime activation is part of this
 increment. Pending work: replace serving repositories, wire durable runs/node
 admission/worker protocol/outbox claims, then perform full process fault testing.
+
+## Simplicity and product quality
+
+Default to one executable, one controller, embedded SQLite and optional outbound
+workers. Add dependencies and services only for a demonstrated monitoring need.
+Keep native integrations generic; specific providers remain external Lua/scripts.
+Do not build component dependency graphs, regional consensus policy engines, full
+SLO/error-budget suites or general configuration approval systems now. Flat groups,
+explicit worker IDs, honest freshness, useful histories and clear delivery state
+are preferred.
+
+Quality gates are understandable setup and errors, smooth accessible desktop/mobile
+UI, preserved editor drafts, explicit local/remote execution, bounded resource use,
+accurate missing-data presentation, stable notification identity, verified restore
+and real process failure tests. New features must improve an actual monitoring task
+without burdening the default installation.
+
+Remote-worker increment: SQLite assignments/receipts and observation/outbox updates
+commit atomically; saved remote checks never execute locally. Scripts require
+controller and worker opt-in. The editor shows execution location and prevents
+misleading local draft execution. Snapshot catalog v2 preserves the remote table;
+v1 imports are normalized without losing base rows. New delivery IDs are persisted
+UUIDs so retention cannot reuse their identity. Actual Docker control/worker tests
+qualify location-specific Lua inputs, scoped authentication, duplicate/stale results,
+paused-worker takeover, network reconnect and controller restart. Multi-controller
+HA and supervised worker updates remain deferred.

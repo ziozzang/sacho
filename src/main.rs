@@ -29,6 +29,7 @@ enum ExampleName {
     Prometheus,
     Postgresql,
     ExternalCommand,
+    RemoteWorker,
 }
 #[derive(Subcommand)]
 enum SecretAction {
@@ -79,12 +80,17 @@ enum DatabaseAction {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Run an outbound-only remote monitoring worker
+    Worker {
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Portable database backup, restore and verification
     Database {
         #[command(subcommand)]
         action: DatabaseAction,
     },
-    /// Print an embedded Lua data-source example
+    /// Print an embedded data-source or worker setup example
     Example {
         #[arg(value_enum)]
         name: ExampleName,
@@ -159,6 +165,7 @@ async fn main() -> Result<()> {
         worker: false,
         ready_file: None,
     }) {
+        Commands::Worker { config } => sacho::remote::run(&config).await?,
         Commands::Database { action } => {
             let snapshot = match action {
                 DatabaseAction::ExportPostgres { url_env, output } => {
@@ -173,7 +180,7 @@ async fn main() -> Result<()> {
                     snapshot
                 }
                 DatabaseAction::ImportPostgres { url_env, input } => {
-                    let snapshot = sacho::storage::load(&input)?;
+                    let snapshot = sacho::storage::load(&input)?.upgraded()?;
                     let url = zeroize::Zeroizing::new(
                         std::env::var(&url_env)
                             .context("database URL environment variable is missing")?,
@@ -187,7 +194,7 @@ async fn main() -> Result<()> {
                     sacho::storage::export_sqlite(&database, &output)?
                 }
                 DatabaseAction::Import { input, database } => {
-                    let snapshot = sacho::storage::load(&input)?;
+                    let snapshot = sacho::storage::load(&input)?.upgraded()?;
                     sacho::storage::import_sqlite(&snapshot, &database)?;
                     snapshot
                 }
@@ -238,6 +245,7 @@ async fn main() -> Result<()> {
                 ExampleName::ExternalCommand => {
                     include_str!("../examples/lua/external-command.lua")
                 }
+                ExampleName::RemoteWorker => include_str!("../examples/remote-worker.toml"),
             };
             std::io::stdout().write_all(source.as_bytes())?;
         }
@@ -249,6 +257,13 @@ async fn main() -> Result<()> {
             if matches!(topic.as_deref(), Some("setup" | "setup-howto")) {
                 use std::io::Write;
                 std::io::stdout().write_all(setup_guide(language).as_bytes())?;
+            } else if topic.as_deref() == Some("workers") {
+                use std::io::Write;
+                let guide = match language {
+                    GuideLanguage::En => include_str!("../docs/REMOTE-WORKERS.md"),
+                    GuideLanguage::Ko => include_str!("../docs/REMOTE-WORKERS.ko.md"),
+                };
+                std::io::stdout().write_all(guide.as_bytes())?;
             } else if topic.as_deref() == Some("storage") {
                 use std::io::Write;
                 let guide = match language {

@@ -292,7 +292,7 @@ pub async fn scheduler(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>
                 let all={db::items(&db.lock().unwrap())};
                 match all {
                     Ok(items)=>for item in items {
-                        if !item.spec.enabled || running.contains(&item.id) || item.last_check.is_some_and(|last|db::now()-last<item.spec.interval_seconds as i64) { continue; }
+                        if !item.spec.worker.is_empty() || !item.spec.enabled || running.contains(&item.id) || item.last_check.is_some_and(|last|db::now()-last<item.spec.interval_seconds as i64) { continue; }
                         let Ok(permit)=semaphore.clone().try_acquire_owned() else {break;};
                         running.insert(item.id.clone());
                         let db=db.clone(); let cfg=cfg.clone(); let done=done_tx.clone(); let mut cancel=stop.clone();

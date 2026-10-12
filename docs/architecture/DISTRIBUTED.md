@@ -1,29 +1,37 @@
 # Distributed execution and Docker qualification
 
-Status: design contract; PostgreSQL lease/fencing primitives are implemented and
-qualified in Docker. Distributed execution is not implemented or enabled.
-The current single-node SQLite deployment continues to use its process lock.
+Status: one SQLite-backed controller with outbound remote workers is implemented
+and qualified using actual Docker processes. PostgreSQL lease/fencing primitives
+are separately qualified. Multi-controller HA is deferred, not enabled.
 
 Distributed roles execute monitoring checks and deliver notifications only.
 They do not implement incident management, on-call, ticketing or remediation;
 webhook consumers own any such workflows.
 
-## Roles and storage
+## Current roles and storage
 
-- `standalone`: embedded SQLite, web/API, scheduler, probes and deliveries in one
-  binary. This remains the default installation.
-- `control`: web/API, configuration and scheduling against PostgreSQL. Multiple
-  replicas share durable state; scheduling leadership uses a renewable lease.
-- `worker`: outbound connection to the control API, authenticated with a scoped,
-  revocable node credential; no public listener and no database credentials.
-  Executes assigned probes and returns bounded observations.
-- `delivery`: claims notification jobs from PostgreSQL. This role may run in the
-  control process initially; independent deployment uses the same executable.
+- `sacho serve`: embedded SQLite, web/API, local scheduler and deliveries in one
+  binary. Registered remote workers claim their own monitors through bearer-auth
+  API routes. The controller retains the existing single-instance process lock.
+- `sacho worker --config worker.toml`: outbound-only connection to the controller;
+  no public listener or database credentials. Executes one assigned probe at a
+  time using local allowed inputs, then submits a bounded result.
 
-SQLite files must not be shared between hosts or placed on network storage for
-distributed execution. PostgreSQL is the shared coordinator. Changing the backend
-alone does not enable these roles. A node label selects region/capabilities;
-labels cannot grant access to another page or tenant.
+This is the preferred initial distributed topology: one controller, many remote
+network locations. No broker, Redis, mandatory PostgreSQL or separate delivery
+service is introduced. Lua remains the generic integration boundary.
+
+SQLite files must not be shared across hosts or placed on network storage.
+PostgreSQL runtime repositories and multiple control replicas may be added later
+when required; neither snapshot support nor lease primitives imply HA readiness.
+
+See [the embedded worker setup guide](../REMOTE-WORKERS.md) for current protocol,
+capability admission, security and result semantics. Current SQLite ownership uses
+random execution IDs and revision guards, a bounded receipt row per monitor, and
+an atomic result/history/outbox commit. Lease replacement creates a new execution
+ID, so stale results cannot affect its successor. The following numbered-token,
+slot-deduplication and rolling-version rules are reserved for a future shared
+PostgreSQL coordinator; they are not claims about the current worker protocol.
 
 ## Ownership and result acceptance
 
@@ -62,16 +70,22 @@ probes are privileged: require an explicit execution capability, bounded payload
 TLS and authenticated control, and a protected worker environment. Do not execute
 code received from an unauthenticated endpoint.
 
-The protocol has an explicit version and advertised capabilities. Unsupported
+The current protocol has an explicit version and script capability opt-in. Unsupported
 versions fail admission before receiving work. Shutdown drains assignments; forced
-shutdown leaves them recoverable after lease expiry. Rolling updates preserve
-protocol compatibility and use the existing signed binary updater. Database schema
+shutdown leaves them recoverable after lease expiry. Future rolling updates must preserve
+protocol compatibility. Workers currently use operator-managed binary upgrades;
+the automatic supervised signed updater belongs to the controller. Database schema
 migrations run once under a separate migration lock before incompatible processes
 start. No independent replica may opportunistically rewrite shared schema.
 
-## Docker acceptance matrix
+## Current qualification and future HA acceptance matrix
 
-Use isolated, owned containers: one PostgreSQL instance, two controls, three
+Current qualification is `tests/remote_docker.py`: one actual controller, workers
+in two locations and a paused/replacement worker. It covers scoped admission,
+local injected inputs, duplicates, takeover, stale results, reconnect and restart.
+SQLite/PostgreSQL snapshot and ownership qualification is separate.
+
+For future HA qualification, use isolated, owned containers: one PostgreSQL instance, two controls, three
 workers with distinct labels, a recording HTTP probe target, a webhook receiver
 and an SMTP test relay. Bind exposed ports to loopback with dynamically selected
 host ports. Use disposable test credentials and temporary storage; never mount

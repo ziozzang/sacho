@@ -34,3 +34,9 @@ CREATE TABLE sacho.outbox(
 );
 CREATE INDEX outbox_due ON sacho.outbox(next_at) WHERE delivered_at IS NULL;
 CREATE TABLE sacho.settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE sacho.remote_runs(
+ item_id TEXT PRIMARY KEY REFERENCES sacho.items(id) ON DELETE CASCADE,
+ run_id TEXT NOT NULL UNIQUE, worker TEXT NOT NULL, revision BIGINT NOT NULL,
+ lease_until BIGINT NOT NULL, result_hash TEXT
+);
+INSERT INTO sacho.schema_migrations VALUES(2);

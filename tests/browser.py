@@ -8,8 +8,8 @@ from playwright.sync_api import sync_playwright, expect
 def main():
  with tempfile.TemporaryDirectory() as tmp:
   tmp=pathlib.Path(tmp);port=free_port();base=f'http://127.0.0.1:{port}'
-  config=tmp/'sacho.toml';config.write_text(f'bind="127.0.0.1:{port}"\ndatabase="{tmp}/sacho.db"\npublic_url="{base}"\nretention_days=90\n')
-  log=open(tmp/'server.log','w');server=subprocess.Popen([str(BINARY),'serve','--config',str(config)],stdout=log,stderr=log)
+  config=tmp/'sacho.toml';config.write_text(f'bind="127.0.0.1:{port}"\ndatabase="{tmp}/sacho.db"\npublic_url="{base}"\nretention_days=90\n[[remote_workers]]\nid="edge-test"\ntoken_env="SACHO_TEST_WORKER_TOKEN"\nallow_scripts=true\n')
+  log=open(tmp/'server.log','w');server=subprocess.Popen([str(BINARY),'serve','--config',str(config)],stdout=log,stderr=log,env={**os.environ,"SACHO_TEST_WORKER_TOKEN":"fixture-worker-token-0123456789abcdef"})
   def request(path,method='GET',body=None):
    req=urllib.request.Request(base+path,method=method,headers={'Content-Type':'application/json','X-Sacho-Request':'1'},data=None if body is None else json.dumps(body).encode())
    with urllib.request.urlopen(req) as r:return json.load(r)
@@ -19,7 +19,7 @@ def main():
     browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1440,'height':1100},locale='en-US')
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     page.add_init_script("localStorage.setItem('sacho-language','en')")
-    page.goto(base+'/admin');page.get_by_role('button',name='+ Add service',exact=True).click()
+    page.goto(base+'/admin');page.get_by_role('button',name='+ Add service',exact=True).click();page.locator('[name=worker]').fill('edge-test');expect(page.locator('#test-draft')).to_be_disabled();expect(page.locator('.test-help')).to_contain_text('Remote checks');page.locator('[name=worker]').fill('');expect(page.locator('#test-draft')).to_be_enabled()
     page.locator('[name=name]').fill('Gateway scenario');page.locator('[name=group]').fill('Infrastructure');page.locator('[name=kind]').select_option('lua');page.locator('[name=interval_seconds]').fill('5');page.locator('[name=timeout_seconds]').fill('3')
     editor=page.locator('.sacho-lua-editor .cm-content');editor.wait_for()
     editor.fill('return sacho.json_encode({version="v0.1.0",tps=42.5})')
@@ -58,6 +58,14 @@ def main():
     page.route('**/api/account',lambda route:route.fulfill(json={'email':'reader@example.com','subscription':'unsubscribed','logout_url':None}))
     page.reload();expect(page.locator('#account')).to_be_visible();assert page.locator('.subscription-state.subscribed').count()==0;assert page.locator('#account a').count()==0
     page.locator('#subscribe-open').evaluate('(button)=>button.disabled=false');page.locator('#subscribe-open').click();assert page.locator('#subscribe-form [name=email]').input_value()=='reader@example.com'
+    page.goto(base+'/admin')
+    page.get_by_role('button',name='+ Add service',exact=True).click()
+    page.locator('[name=name]').fill('Remote UI fixture');page.locator('[name=target]').fill('https://example.com/health');page.locator('[name=worker]').fill('edge-test')
+    expect(page.locator('#test-draft')).to_be_disabled()
+    page.get_by_role('button',name='Save service',exact=True).click();page.locator('#edit-dialog').wait_for(state='hidden')
+    remote=next(item for item in request('/api/admin/items') if item['spec']['name']=='Remote UI fixture')
+    assert remote['spec']['worker']=='edge-test' and remote['last_check'] is None
+    expect(page.locator('.admin-item').filter(has_text='Remote UI fixture')).to_contain_text('edge-test')
     assert not errors,errors
     browser.close()
     print('PASS: embedded Lua editor, language draft preservation, test/save, version/TPS display, drag/drop persistence, preview, automatic 1h resolution, 5s chart and Korean mobile layout')

@@ -1,6 +1,6 @@
 # Portable persistence and distributed foundations
 
-The development build provides a native PostgreSQL migration adapter and a
+Sacho v0.1.4 provides a native PostgreSQL migration adapter and a
 versioned portable snapshot format. **Serving the page and scheduling probes still
 use SQLite.** Do not put a PostgreSQL URL in the existing `database` setting or
 switch a production deployment yet. SQL source probes are a separate feature.
@@ -67,8 +67,9 @@ that holds ownership while committing domain changes. Lease time is database tim
 Coordination rows live in `sacho_coordination`, separate from business snapshots.
 They are transient ownership, not pending jobs or observations. A database cutover
 must stop all old nodes; a fresh coordination namespace gives new generations.
-Pending run persistence, node admission, result idempotency, actual worker runtime
-and outbox claims remain required before enabling distributed operations. See the
+The single SQLite controller now implements remote assignment persistence, node
+admission, result idempotency and the outbound worker runtime. PostgreSQL runtime
+and distributed outbox claims remain pending for multi-controller HA. See the
 [role and Docker acceptance contract](architecture/DISTRIBUTED.md).
 
 ## Local qualification
@@ -84,3 +85,7 @@ transactional failure, fingerprints, sequence continuation, concurrent claim,
 failover and stale-token rejection. It removes its container on completion or
 failure and uses no production credentials or GitHub Actions. This is storage and
 coordination qualification; full distributed-process fault testing is still pending.
+
+Snapshot catalog v2 includes the bounded remote assignment/receipt table. Legacy
+v1 imports normalize to v2 with an empty remote table; their normalized fingerprint
+changes with the catalog version. See [remote workers](REMOTE-WORKERS.md).

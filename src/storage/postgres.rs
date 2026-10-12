@@ -1,13 +1,13 @@
 //! Native async PostgreSQL snapshot adapter. The application serving backend is
 //! still SQLite until all repositories and ownership protocols are wired.
-use super::{FORMAT_VERSION, Snapshot, TABLES};
+use super::{FORMAT_VERSION, Snapshot, catalog};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use sqlx_core::row::Row;
 use sqlx_postgres::{PgPool, PgPoolOptions, Postgres};
 use std::time::Duration;
 
-const SCHEMA: &str = include_str!("postgres-v1.sql");
+const SCHEMA: &str = include_str!("postgres-schema.sql");
 const MIGRATION_LOCK: i64 = 0x736163686f000001;
 
 pub async fn connect(url: &str) -> Result<PgPool> {
@@ -27,21 +27,29 @@ async fn capture_transaction(
     )
     .fetch_all(&mut **tx)
     .await?;
-    ensure!(versions == vec![1], "unsupported PostgreSQL schema");
+    ensure!(
+        versions == vec![1] || versions == vec![1, 2],
+        "unsupported PostgreSQL schema"
+    );
+    let version = if versions.len() == 2 { 2 } else { 1 };
+    let tables_catalog = catalog(version);
     let names: Vec<String> = sqlx_core::query_scalar::query_scalar(
         "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='sacho' ORDER BY tablename",
     )
     .fetch_all(&mut **tx)
     .await?;
-    let mut expected: Vec<String> = TABLES.iter().map(|(name, _)| name.to_string()).collect();
+    let mut expected: Vec<String> = tables_catalog
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
     expected.push("schema_migrations".into());
     expected.sort();
     ensure!(names == expected, "PostgreSQL table catalog mismatch");
     let mut tables = std::collections::BTreeMap::new();
-    for (name, columns) in TABLES {
+    for (name, columns) in tables_catalog {
         let actual: Vec<String> = sqlx_core::query_scalar::query_scalar(
             "SELECT column_name::text FROM information_schema.columns WHERE table_schema='sacho' AND table_name=$1 ORDER BY ordinal_position",
-        ).bind(*name).fetch_all(&mut **tx).await?;
+        ).bind(name).fetch_all(&mut **tx).await?;
         ensure!(
             actual
                 .iter()
@@ -50,7 +58,7 @@ async fn capture_transaction(
             "PostgreSQL column catalog mismatch in {name}"
         );
         // Force byte-wise text order, independent of database locale.
-        let order = if matches!(*name, "checks" | "outbox") {
+        let order = if matches!(name, "checks" | "outbox") {
             columns[0].to_string()
         } else {
             format!("{} COLLATE \"C\"", columns[0])
@@ -60,7 +68,7 @@ async fn capture_transaction(
         for row in sqlx_core::query::query(&query).fetch_all(&mut **tx).await? {
             let data: Value = row.try_get("data")?;
             let mut cells = Vec::with_capacity(columns.len());
-            for column in *columns {
+            for column in columns {
                 let mut value = data
                     .get(*column)
                     .context("missing PostgreSQL column")?
@@ -79,7 +87,7 @@ async fn capture_transaction(
     }
     let mut snapshot = Snapshot {
         format_version: FORMAT_VERSION,
-        schema_version: 1,
+        schema_version: version,
         tables,
         sha256: String::new(),
     };
@@ -102,7 +110,7 @@ pub async fn capture(pool: &PgPool) -> Result<Snapshot> {
 }
 
 pub async fn import(snapshot: &Snapshot, pool: &PgPool) -> Result<()> {
-    snapshot.validate()?;
+    let snapshot = snapshot.upgraded()?;
     let mut tx = pool.begin().await?;
     sqlx_core::query::query("SET LOCAL lock_timeout='10s'")
         .execute(&mut *tx)
@@ -126,13 +134,13 @@ pub async fn import(snapshot: &Snapshot, pool: &PgPool) -> Result<()> {
     sqlx_core::raw_sql::raw_sql(SCHEMA)
         .execute(&mut *tx)
         .await?;
-    for (name, columns) in TABLES {
+    for (name, columns) in catalog(snapshot.schema_version) {
         let query = format!(
             "INSERT INTO sacho.{name}({}) SELECT {} FROM jsonb_populate_record(NULL::sacho.{name}, $1)",
             columns.join(","),
             columns.join(",")
         );
-        for row in &snapshot.tables[*name] {
+        for row in &snapshot.tables[name] {
             let data: serde_json::Map<String, Value> = columns
                 .iter()
                 .zip(row)

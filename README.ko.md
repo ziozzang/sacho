@@ -1,7 +1,8 @@
 # Sacho · 사초
 
-개발 빌드에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL 작업 임대·펜싱
-기반을 추가했습니다. 실행 저장소는 아직 SQLite이며 분산 워커는 활성화하지 않았습니다.
+v0.1.4에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL 작업 임대·펜싱
+기반과 원격 모니터링 워커를 추가했습니다. 중앙 저장소는 SQLite이며 다중 중앙 HA는
+미룹니다. [원격 워커](docs/REMOTE-WORKERS.ko.md)는 같은 실행 파일로 운영합니다.
 [저장소 안내](docs/DATABASE.ko.md)(`sacho help storage --language ko`)와
 [기업용 기능 구현 현황](docs/architecture/ENTERPRISE.md)을 참고하세요.
 

@@ -275,3 +275,51 @@ async fn postgres_lease_contention_failover_and_fencing() -> Result<()> {
     pool.close().await;
     Ok(())
 }
+
+#[test]
+fn legacy_catalog_upgrades_and_remote_receipts_survive_transfer() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let source = dir.path().join("legacy.db");
+    let db = db::open(source.to_str().unwrap())?;
+    db.lock().unwrap().execute_batch(
+        "DROP TABLE remote_runs; INSERT INTO settings VALUES('legacy','preserved');",
+    )?;
+    let legacy = storage::export_sqlite(&source, &dir.path().join("legacy.json"))?;
+    assert_eq!(legacy.schema_version, 1);
+    storage::import_sqlite(&legacy, &dir.path().join("upgraded.db"))?;
+    let upgraded = storage::export_sqlite(
+        &dir.path().join("upgraded.db"),
+        &dir.path().join("upgraded.json"),
+    )?;
+    assert_eq!(upgraded.schema_version, 2);
+    assert_eq!(upgraded.tables["settings"], legacy.tables["settings"]);
+    assert!(upgraded.tables["remote_runs"].is_empty());
+    assert_eq!(upgraded.sha256, legacy.upgraded()?.sha256);
+    let remote_db = db::open(dir.path().join("remote.db").to_str().unwrap())?;
+    {
+        let mut conn = remote_db.lock().unwrap();
+        db::save(
+            &mut conn,
+            None,
+            &CheckSpec {
+                name: "Edge".into(),
+                worker: "edge".into(),
+                target: "https://example.com/health".into(),
+                ..Default::default()
+            },
+        )?;
+        assert!(sacho::remote::claim(&mut conn, "edge", false)?.is_some());
+    }
+    let remote_snapshot = storage::export_sqlite(
+        &dir.path().join("remote.db"),
+        &dir.path().join("remote.json"),
+    )?;
+    assert_eq!(remote_snapshot.counts()["remote_runs"], 1);
+    storage::import_sqlite(&remote_snapshot, &dir.path().join("remote-returned.db"))?;
+    let returned = storage::export_sqlite(
+        &dir.path().join("remote-returned.db"),
+        &dir.path().join("remote-returned.json"),
+    )?;
+    assert_eq!(remote_snapshot.sha256, returned.sha256);
+    Ok(())
+}

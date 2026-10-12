@@ -1,0 +1,16 @@
+# Export with: sacho example remote-worker
+control_url = "https://status.example.com"
+node_id = "edge-west"
+token_env = "SACHO_WORKER_TOKEN"
+probe_env = ["PROBE_API_URL", "PROBE_API_AUTH"]
+# Explicitly opt in only when the controller's operators are trusted to execute
+# code on this worker. The controller must grant this capability too.
+allow_scripts = false
+
+# Keep credentials on the worker; assignment payloads contain references only.
+# [secrets]
+# vault = "/var/lib/sacho/worker-inputs.enc"
+# key_file = "/etc/sacho/worker-unlock.key"
+
+# Optional custom CA for the controller (normal public roots work by default).
+# ca_file = "/etc/sacho/controller-ca.pem"

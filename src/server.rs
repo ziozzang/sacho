@@ -119,8 +119,9 @@ pub fn router(app: App) -> Router {
         .route("/api/admin/webhooks", get(webhooks).post(create_webhook))
         .route("/api/admin/webhooks/{id}", delete(delete_webhook))
         .route("/api/admin/notifications", get(notifications))
+        .route("/api/admin/workers", get(workers))
         .route_layer(middleware::from_fn_with_state(app.clone(), admin_auth));
-    Router::new().merge(admin)
+    Router::new().merge(admin).merge(crate::remote::router())
         .route("/",get(index)).route("/admin",get(index)).route("/admin/",get(index))
         .route("/assets/lua-editor.js",get(lua_script)).route("/assets/lua-editor.css",get(lua_style))
         .route("/assets/app.js",get(script)).route("/assets/style.css",get(style))
@@ -299,11 +300,40 @@ async fn public_incidents(State(app): State<App>) -> ApiResult<Json<Value>> {
 async fn admin_items(State(app): State<App>) -> ApiResult<Json<Value>> {
     Ok(Json(json!(db::items(&app.db.lock().unwrap())?)))
 }
+async fn workers(State(app): State<App>) -> ApiResult<Json<Value>> {
+    let conn = app.db.lock().unwrap();
+    let items = db::items(&conn)?;
+    let mut nodes = vec![];
+    for worker in &app.cfg.remote_workers {
+        let assigned: Vec<_> = items
+            .iter()
+            .filter(|item| item.spec.worker == worker.id)
+            .collect();
+        let last_result = assigned.iter().filter_map(|item| item.last_check).max();
+        nodes.push(json!({"id":worker.id,"allow_scripts":worker.allow_scripts,"monitors":assigned.len(),"last_result":last_result}));
+    }
+    Ok(Json(json!(nodes)))
+}
+fn validate_worker(cfg: &Config, spec: &CheckSpec) -> ApiResult<()> {
+    if spec.worker.is_empty() {
+        return Ok(());
+    }
+    let worker = cfg
+        .remote_workers
+        .iter()
+        .find(|worker| worker.id == spec.worker)
+        .ok_or_else(|| bad("Worker is not registered in server configuration"))?;
+    if spec.kind != "http" && !worker.allow_scripts {
+        return Err(bad("This worker is not allowed to execute scripts"));
+    }
+    Ok(())
+}
 async fn create_item(
     State(app): State<App>,
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
+    validate_worker(&app.cfg, &spec)?;
     let id = db::save(&mut app.db.lock().unwrap(), None, &spec)?;
     Ok(Json(json!({"id":id})))
 }
@@ -313,6 +343,7 @@ async fn update_item(
     Json(spec): Json<CheckSpec>,
 ) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
+    validate_worker(&app.cfg, &spec)?;
     db::save(&mut app.db.lock().unwrap(), Some(id), &spec)?;
     Ok(Json(json!({"ok":true})))
 }
@@ -643,6 +674,11 @@ pub async fn serve(cfg: Config, ready_file: Option<PathBuf>) -> Result<()> {
 
 async fn test_draft(State(app): State<App>, Json(spec): Json<CheckSpec>) -> ApiResult<Json<Value>> {
     spec.validate().map_err(|e| bad(&e.to_string()))?;
+    if !spec.worker.is_empty() {
+        return Err(bad(
+            "Remote checks execute after saving; draft tests run on the controller only.",
+        ));
+    }
     let _permit = app.test_slots.clone().try_acquire_owned().map_err(|_| {
         ApiError(
             StatusCode::TOO_MANY_REQUESTS,

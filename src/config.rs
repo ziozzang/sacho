@@ -16,9 +16,18 @@ pub struct Config {
     pub retention_days: u32,
     pub max_concurrent_checks: usize,
     pub probe_env: Vec<String>,
+    pub remote_workers: Vec<RemoteWorker>,
     pub secrets: Option<Secrets>,
     #[serde(skip)]
     pub secret_values: std::collections::BTreeMap<String, String>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteWorker {
+    pub id: String,
+    pub token_env: String,
+    #[serde(default)]
+    pub allow_scripts: bool,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +105,7 @@ impl Default for Config {
             retention_days: 100,
             max_concurrent_checks: 16,
             probe_env: vec![],
+            remote_workers: vec![],
             secrets: None,
             secret_values: Default::default(),
         }
@@ -118,6 +128,28 @@ impl Config {
             .ok_or_else(|| anyhow::anyhow!("named input is not available"))
     }
     pub fn validate(&self) -> Result<()> {
+        let mut nodes = std::collections::HashSet::new();
+        let mut tokens = std::collections::HashSet::new();
+        ensure!(self.remote_workers.len() <= 128, "too many workers");
+        for worker in &self.remote_workers {
+            ensure!(
+                crate::remote::valid_node(&worker.id) && nodes.insert(&worker.id),
+                "invalid or duplicate worker ID"
+            );
+            let token = zeroize::Zeroizing::new(self.environment(&worker.token_env)?);
+            ensure!(
+                tokens.insert(<sha2::Sha256 as sha2::Digest>::digest(token.as_bytes())),
+                "worker tokens must be unique per node"
+            );
+            ensure!(
+                (32..=512).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_graphic()),
+                "worker token must be 32..512 printable bytes"
+            );
+            ensure!(
+                !self.probe_env.contains(&worker.token_env),
+                "worker admission tokens must not be exposed to probes"
+            );
+        }
         let bind: SocketAddr = self.bind.parse()?;
         ensure!(
             self.auth.mode == "no-auth" || self.auth.mode == "auth-proxy",

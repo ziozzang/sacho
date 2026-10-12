@@ -100,7 +100,9 @@ pub async fn worker(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            payload["delivery_id"] = serde_json::json!(id.to_string());
+            if payload["delivery_id"].as_str().is_none() {
+                payload["delivery_id"] = serde_json::json!(id.to_string());
+            }
             let result = tokio::select! {_=stop.changed()=>return,result=async {
                 let (templates,site_title)={let conn=db.lock().unwrap();(crate::templates::load(&conn)?,db::site(&conn,&cfg)?["title"].as_str().unwrap_or(&cfg.title).to_owned())};
                 deliver(&cfg,&client,&kind,&to,&payload,&templates,&site_title).await

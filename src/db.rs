@@ -13,6 +13,8 @@ pub fn now() -> i64 {
 #[serde(default, deny_unknown_fields)]
 pub struct CheckSpec {
     pub name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub worker: String,
     pub description: String,
     pub group: String,
     pub kind: String,
@@ -39,6 +41,7 @@ impl Default for CheckSpec {
     fn default() -> Self {
         Self {
             name: String::new(),
+            worker: String::new(),
             description: String::new(),
             group: "Services".into(),
             kind: "http".into(),
@@ -65,6 +68,10 @@ impl Default for CheckSpec {
 }
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.worker.is_empty() || crate::remote::valid_node(&self.worker),
+            "invalid worker ID"
+        );
         ensure!(
             !self.name.trim().is_empty() && self.name.len() <= 120,
             "name required, up to 120 bytes"
@@ -172,6 +179,7 @@ pub fn open(path: &str) -> Result<Db> {
     CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, destination TEXT NOT NULL, payload TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, delivered_at INTEGER, error TEXT, created_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS outbox_due ON outbox(next_at) WHERE delivered_at IS NULL;
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS remote_runs(item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE, run_id TEXT NOT NULL UNIQUE, worker TEXT NOT NULL, revision INTEGER NOT NULL, lease_until INTEGER NOT NULL, result_hash TEXT);
     PRAGMA user_version=1;")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
@@ -228,7 +236,8 @@ pub fn save(conn: &mut Connection, id: Option<String>, spec: &CheckSpec) -> Resu
         Ok(id)
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
     pub status: String,
     pub latency_ms: i64,
@@ -238,6 +247,15 @@ pub struct Observation {
 // Observations, state transitions, incidents and notification jobs commit together.
 pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<()> {
     let tx = conn.transaction()?;
+    record_transaction(&tx, item, obs)?;
+    tx.commit()?;
+    Ok(())
+}
+pub(crate) fn record_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    item: &Item,
+    obs: &Observation,
+) -> Result<()> {
     let current: Option<(String, u32, u32, u64)> = tx
         .query_row(
             "SELECT status,failures,successes,revision FROM items WHERE id=?",
@@ -287,7 +305,7 @@ pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<(
             params![id, item.id, item.spec.name, next, at, obs.detail],
         )?;
         enqueue_event(
-            &tx,
+            tx,
             json!({"event":"incident.started","incident_id":id,"item_id":item.id,"name":item.spec.name,"status":next,"at":at,"group":item.spec.group,"description":item.spec.description,"display_value":display,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit,"latency_ms":obs.latency_ms}),
         )?;
     } else if old_bad && !next_bad {
@@ -300,7 +318,7 @@ pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<(
             .optional()?;
         tx.execute("UPDATE incidents SET status='resolved',resolved_at=? WHERE item_id=? AND resolved_at IS NULL",params![at,item.id])?;
         enqueue_event(
-            &tx,
+            tx,
             json!({"event":"incident.resolved","incident_id":incident,"item_id":item.id,"name":item.spec.name,"status":next,"at":at,"group":item.spec.group,"description":item.spec.description,"display_value":display,"display_label":item.spec.display_label,"metric_unit":item.spec.metric_unit,"latency_ms":obs.latency_ms}),
         )?;
     } else if next_bad {
@@ -309,16 +327,21 @@ pub fn record(conn: &mut Connection, item: &Item, obs: &Observation) -> Result<(
             params![next, item.id],
         )?;
     }
-    tx.commit()?;
     Ok(())
 }
 pub fn queue(conn: &Connection, kind: &str, destination: &str, payload: &Value) -> Result<()> {
+    let mut payload = payload.clone();
+    ensure!(
+        payload.is_object(),
+        "notification payload must be an object"
+    );
+    payload["delivery_id"] = json!(Uuid::new_v4().to_string());
     conn.execute(
         "INSERT INTO outbox(kind,destination,payload,next_at,created_at) VALUES(?,?,?,?,?)",
         params![
             kind,
             destination,
-            serde_json::to_string(payload)?,
+            serde_json::to_string(&payload)?,
             now(),
             now()
         ],

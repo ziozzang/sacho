@@ -80,6 +80,25 @@ pub const TABLES: &[(&str, &[&str])] = &[
     ("settings", &["key", "value"]),
 ];
 
+const REMOTE_TABLE: (&str, &[&str]) = (
+    "remote_runs",
+    &[
+        "item_id",
+        "run_id",
+        "worker",
+        "revision",
+        "lease_until",
+        "result_hash",
+    ],
+);
+pub(super) fn catalog(version: u32) -> Vec<(&'static str, &'static [&'static str])> {
+    let mut tables = TABLES.to_vec();
+    if version == 2 {
+        tables.push(REMOTE_TABLE);
+    }
+    tables
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
@@ -96,15 +115,15 @@ impl Snapshot {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.format_version == FORMAT_VERSION && self.schema_version == 1,
+            self.format_version == FORMAT_VERSION && (1..=2).contains(&self.schema_version),
             "unsupported snapshot version"
         );
         ensure!(
-            self.tables.len() == TABLES.len(),
+            self.tables.len() == catalog(self.schema_version).len(),
             "snapshot table catalog mismatch"
         );
-        for (name, columns) in TABLES {
-            let rows = self.tables.get(*name).context("missing snapshot table")?;
+        for (name, columns) in catalog(self.schema_version) {
+            let rows = self.tables.get(name).context("missing snapshot table")?;
             for row in rows {
                 ensure!(
                     row.len() == columns.len(),
@@ -130,6 +149,15 @@ impl Snapshot {
         );
         Ok(())
     }
+    /// Normalize a legacy seven-table snapshot into the current data catalog.
+    pub fn upgraded(&self) -> Result<Self> {
+        self.validate()?;
+        let mut result = self.clone();
+        result.schema_version = 2;
+        result.tables.entry("remote_runs".into()).or_default();
+        result.sha256 = result.digest()?;
+        Ok(result)
+    }
     pub fn counts(&self) -> BTreeMap<String, usize> {
         self.tables
             .iter()
@@ -145,14 +173,23 @@ pub fn capture(conn: &mut Connection) -> Result<Snapshot> {
     // Refuse silently losing future/custom persistent tables.
     let names: Vec<String> = tx.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?
         .query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    let mut expected: Vec<String> = TABLES.iter().map(|(name, _)| name.to_string()).collect();
+    let version = if names.iter().any(|name| name == "remote_runs") {
+        2
+    } else {
+        1
+    };
+    let tables_catalog = catalog(version);
+    let mut expected: Vec<String> = tables_catalog
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
     expected.sort();
     ensure!(
         names == expected,
         "database table catalog mismatch; use a compatible binary"
     );
     let mut tables = BTreeMap::new();
-    for (name, columns) in TABLES {
+    for (name, columns) in tables_catalog {
         let actual: Vec<String> = tx
             .prepare(&format!("PRAGMA table_info({name})"))?
             .query_map([], |r| r.get(1))?
@@ -252,7 +289,7 @@ pub fn write(snapshot: &Snapshot, destination: &Path) -> Result<()> {
 }
 
 pub fn import_sqlite(snapshot: &Snapshot, destination: &Path) -> Result<()> {
-    snapshot.validate()?;
+    let snapshot = snapshot.upgraded()?;
     // Build and verify off to the side. Never overwrite or partially populate a
     // user's existing database, even when a constraint fails halfway through.
     let output = tempfile::NamedTempFile::new_in(parent(destination))?;
@@ -267,14 +304,14 @@ pub fn import_sqlite(snapshot: &Snapshot, destination: &Path) -> Result<()> {
             .lock()
             .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
         let tx = conn.transaction()?;
-        for (name, columns) in TABLES {
+        for (name, columns) in catalog(snapshot.schema_version) {
             let placeholders = vec!["?"; columns.len()].join(",");
             let sql = format!(
                 "INSERT INTO {name}({}) VALUES({placeholders})",
                 columns.join(",")
             );
             let mut statement = tx.prepare(&sql)?;
-            for row in &snapshot.tables[*name] {
+            for row in &snapshot.tables[name] {
                 let cells: Vec<SqlValue> = row
                     .iter()
                     .map(|cell| match cell {
