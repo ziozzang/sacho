@@ -48,8 +48,8 @@ Hopae에는 Sacho 호스트를 앱으로 등록합니다. hangang의 `HANGANG_HO
 검사 항목, 알림 수신 대상, 레이아웃은 관리자 화면에서 변경합니다.
 SMTP 비밀번호와 검사 비밀값은 관리자 화면에서 표시·변경하지 않습니다.
 
-SMTP는 `starttls` 또는 `tls`를 사용합니다. 테스트용 `plain`은 루프백으로
-제한합니다. `public_url`을 실제 주소로 지정해야 구독 메일 링크와 Origin
+SMTP는 `starttls` 또는 `tls`를 사용합니다. `plain`은 루프백 또는 사설 IPv4
+릴레이에만 사용할 수 있습니다. `public_url`을 실제 주소로 지정해야 구독 메일 링크와 Origin
 검증이 일치합니다. 확인 링크는 24시간 유효하고, 확인 메일은 전체 시간당
 100건·주소별 시간당 1건으로 제한합니다.
 
@@ -74,4 +74,4 @@ SHA-256·크기를 고정하고 버전 하향을 차단합니다. 사설 HTTPS �
 Cargo 버전과 일치하는 `v<버전>` 태그를 푸시하면 Linux/macOS x86_64/ARM64와
 Linux x86_64 musl 실행 파일을 빌드하고 서명된 매니페스트를 게시합니다.
 
-`/api/account` must use the same identity-stripping authentication proxy as the protected admin API. It reports only the authenticated email and its subscription state. Set `[auth].logout_url` to your proxy logout path (for Hopae, `/_hopae/logout`) to enable the logout link. A missing setting hides the link. Plain SMTP is supported only for loopback or private IPv4 relays.
+`/api/account`에도 관리자 API와 동일하게 외부 신원 헤더를 제거하고 검증된 신원만 전달하는 인증 프록시를 적용하세요. 로그인한 이메일과 본인의 구독 상태만 반환합니다. `[auth].logout_url`에 프록시 로그아웃 경로(Hopae는 `/_hopae/logout`)를 설정하면 로그아웃 버튼이 표시되고, 설정이 없으면 숨깁니다.

@@ -70,8 +70,8 @@ password_env = "SACHO_SMTP_PASSWORD"
 security = "starttls"
 ```
 
-`tls` supports implicit TLS (usually 465); `plain` is restricted to literal loopback
-or localhost for test relays. Configure `public_url` correctly for email links and
+`tls` supports implicit TLS (usually 465); `plain` is restricted to loopback,
+localhost or private IPv4 relays. Configure `public_url` correctly for email links and
 Origin checks. Confirmation links expire after 24h. Subscription requests are
 limited globally to 100 confirmation jobs/hour and per-address to one/hour.
 

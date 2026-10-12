@@ -48,6 +48,12 @@ def main():
     page.locator('#language').click();page.get_by_text('모든 시스템이 정상 운영 중입니다').wait_for()
     page.set_viewport_size({'width':390,'height':844});page.screenshot(path=str(ROOT/'runtime/screenshots/status-mobile-ko.png'),full_page=True)
     page.wait_for_timeout(600);assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth');assert page.locator('.bars').evaluate_all('(charts)=>charts.every(chart=>chart.scrollWidth<=chart.clientWidth)')
+    # Identity fixture exercises the public account strip without production data.
+    page.route('**/api/account',lambda route:route.fulfill(json={'email':'reader@example.com','subscription':'subscribed','logout_url':'/identity/logout'}))
+    page.reload();expect(page.locator('.subscription-state.subscribed')).to_contain_text('reader@example.com');assert page.locator('#account a').get_attribute('href')=='/identity/logout'
+    page.route('**/api/account',lambda route:route.fulfill(json={'email':'reader@example.com','subscription':'unsubscribed','logout_url':None}))
+    page.reload();expect(page.locator('#account')).to_be_visible();assert page.locator('.subscription-state.subscribed').count()==0;assert page.locator('#account a').count()==0
+    page.locator('#subscribe-open').evaluate('(button)=>button.disabled=false');page.locator('#subscribe-open').click();assert page.locator('#subscribe-form [name=email]').input_value()=='reader@example.com'
     assert not errors,errors
     browser.close()
     print('PASS: embedded Lua editor, language draft preservation, test/save, version/TPS display, drag/drop persistence, preview, automatic 1h resolution, 5s chart and Korean mobile layout')
