@@ -40,6 +40,13 @@ pub fn validate(spec: &CheckSpec, cfg: &Config) -> Value {
             names.push(name);
         }
     }
+    if let Some(snmp) = &spec.snmp {
+        for name in crate::network_probes::inputs(snmp) {
+            if !names.iter().any(|n| n == name) {
+                names.push(name.into());
+            }
+        }
+    }
     for name in spec.headers_env.values() {
         if !names.contains(name) {
             names.push(name.clone());
@@ -47,6 +54,11 @@ pub fn validate(spec: &CheckSpec, cfg: &Config) -> Value {
     }
     if spec.worker.is_empty() {
         for name in &names {
+            if spec.input_bindings.contains_key(name)
+                || spec.input_updates.iter().any(|u| &u.name == name)
+            {
+                continue;
+            }
             if !cfg.probe_names().contains(name) {
                 warnings.push(format!("{name}: not in probe_env"));
             } else if cfg.environment(name).is_err() {
@@ -68,10 +80,8 @@ pub fn catalogue() -> Value {
     };
     let scalar = CheckSpec {
         name: "JSON scalar".into(),
-        kind: "lua".into(),
-        target:
-            "local r=sacho.http(sacho.env(\"CHECK_URL\")); assert(r.status==200); return r.body"
-                .into(),
+        kind: "http".into(),
+        target: "https://example.com/metrics".into(),
         publish_value: true,
         display_pointer: "/value".into(),
         publish_trend: true,
@@ -158,13 +168,53 @@ pub fn catalogue() -> Value {
         comparison: "gte".into(),
         ..Default::default()
     };
-    let ping = starter(
-        "ICMP reachability",
-        "lua",
-        include_str!("../examples/lua/ping.lua"),
-    );
+    let ping: CheckSpec =
+        serde_json::from_str(include_str!("../examples/native/ping.json")).unwrap();
+    let snmp: CheckSpec =
+        serde_json::from_str(include_str!("../examples/native/snmp.json")).unwrap();
+    let disk = CheckSpec {
+        name: "Disk usage".into(),
+        kind: "shell".into(),
+        target: include_str!("../examples/shell/disk-usage.sh").into(),
+        publish_value: true,
+        display_pointer: "/value".into(),
+        metric_unit: "%".into(),
+        publish_trend: true,
+        trend_pointer: "/value".into(),
+        value_rules: Some(crate::monitoring::ValueRules {
+            pointer: "/value".into(),
+            direction: "high".into(),
+            warning: Some(85.0),
+            critical: Some(95.0),
+        }),
+        ..Default::default()
+    };
+    let process = CheckSpec {
+        name: "Process presence".into(),
+        kind: "shell".into(),
+        target: include_str!("../examples/shell/process-count.sh").into(),
+        publish_value: true,
+        display_pointer: "/value".into(),
+        json_pointer: "/healthy".into(),
+        threshold: Some(1.0),
+        comparison: "gte".into(),
+        ..Default::default()
+    };
+    let shell_http = CheckSpec {
+        name: "Custom HTTP with private authorization".into(),
+        kind: "shell".into(),
+        target: include_str!("../examples/shell/http-auth.sh").into(),
+        publish_value: true,
+        display_pointer: "/value".into(),
+        timeout_seconds: 10,
+        ..Default::default()
+    };
     let mut examples = json!([
-        {"id":"ping","title":"ICMP ping","spec":ping,"inputs":["PING_HOST"],"requirements":"External ping with ICMP permission; firewalls may block ICMP independently of service health"},
+        {"id":"ping","title":"ICMP ping (native)","spec":ping,"inputs":[],"requirements":"Built-in ICMPv4/v6; executing node needs ping socket permission or CAP_NET_RAW"},
+        {"id":"snmp","title":"SNMP (native)","spec":snmp,"inputs":["SNMP_COMMUNITY"],"requirements":"Built-in read-only SNMPv2c/v3 GET; numeric OIDs and injected credentials"},
+        {"id":"shell-disk","title":"Shell / filesystem utilization","spec":disk,"inputs":[],"requirements":"df and awk; optional ordinary CHECK_PATH input defaults to /"},
+        {"id":"shell-process","title":"Shell / process presence","spec":process,"inputs":["PROCESS_NAME"],"requirements":"ps and awk; exact process command name on the execution node"},
+        {"id":"shell-http","title":"Shell / custom authenticated HTTP","spec":shell_http,"inputs":["CHECK_URL","AUTHORIZATION"],"requirements":"curl and sed; authorization supplied via stdin; standard HTTP/JSON is native"},
         {"id":"prometheus-native","title":"Prometheus (native)","spec":native_prometheus,"inputs":[],"requirements":"Prometheus instant-query API; exactly one scalar or series"},
         {"id":"dns","title":"DNS records","spec":native_dns,"inputs":[],"requirements":"Built-in resolver; optional DNS server IP and exact expected answer set"},
         {"id":"tcp","title":"TCP connection time","spec":native_tcp,"inputs":[],"requirements":"Built in; host:port or [IPv6]:port"},
@@ -173,9 +223,9 @@ pub fn catalogue() -> Value {
         {"id":"python","title":"Python code","spec":starter("Python version", "python", include_str!("../examples/python/basic.py")),"inputs":[],"requirements":"python3 on the executing node"},
         {"id":"lua","title":"Lua script","spec":starter("Embedded Lua version", "lua", include_str!("../examples/lua/basic.lua")),"inputs":[],"requirements":"Built in; no external interpreter or inputs required"},
         {"id":"http","title":"HTTP / API","spec":http,"inputs":[],"requirements":"HTTP(S) connectivity"},
-        {"id":"json","title":"JSON scalar / TPS","spec":scalar,"inputs":["CHECK_URL"],"requirements":"A JSON response with a numeric value field"},
-        {"id":"prometheus","title":"Prometheus","spec":prometheus,"inputs":["PROMETHEUS_URL","PROMETHEUS_QUERY"],"requirements":"A query returning exactly one scalar or series"},
-        {"id":"postgresql","title":"PostgreSQL","spec":postgres,"inputs":["PGHOST","PGPORT","PGDATABASE","PGUSER","PGPASSFILE","PGCONNECT_TIMEOUT","PGSQL_QUERY"],"requirements":"External psql and a read-only database role"},
+        {"id":"json","title":"JSON scalar / TPS","spec":scalar,"inputs":[],"requirements":"A JSON response with a numeric value field"},
+        {"id":"prometheus","title":"Prometheus (custom Lua adapter)","spec":prometheus,"inputs":["PROMETHEUS_URL","PROMETHEUS_QUERY"],"requirements":"A query returning exactly one scalar or series"},
+        {"id":"postgresql","title":"PostgreSQL (custom Lua / psql adapter)","spec":postgres,"inputs":["PGHOST","PGPORT","PGDATABASE","PGUSER","PGPASSFILE","PGCONNECT_TIMEOUT","PGSQL_QUERY"],"requirements":"External psql and a read-only database role"},
         {"id":"docker","title":"Docker container","spec":docker,"inputs":["DOCKER_SOCKET","DOCKER_CONTAINER"],"requirements":"Trusted access to a Docker Unix socket; no Docker CLI required"}
     ]);
     for example in examples.as_array_mut().unwrap() {
@@ -190,6 +240,9 @@ pub fn export(conn: &Connection, cfg: &Config) -> anyhow::Result<Value> {
         for field in [
             "target",
             "actions",
+            "input_bindings",
+            "input_updates",
+            "snmp",
             "prometheus_query",
             "dns_server",
             "dns_expected",

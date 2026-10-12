@@ -185,9 +185,9 @@ TPS JSON의 /tps와 단위 ` TPS`, version 문자열의 /version을 표시할 �
 실행 파일에서 예제 소스를 꺼낼 수 있습니다. 저장소 checkout이 필요 없습니다.
 
 ```sh
-sacho example prometheus
-sacho example postgresql
-sacho example external-command
+sacho template prometheus
+sacho template postgresql
+sacho template external-command
 ```
 
 Prometheus는 PROMETHEUS_URL/PROMETHEUS_QUERY를 주입하고 Lua 검사로 등록합니다.
@@ -294,7 +294,7 @@ incident_id는 장애·복구 신호이며 인시던트 관리 구현 요구가 
 명시적인 추가 요청 없이 일반 기업용 업무 시스템으로 확장하지 마세요.
 
 원격 검사는 SQLite 중앙 하나와 아웃바운드 `sacho worker` 프로세스로 실행합니다.
-`sacho help workers --language ko`로 전체 안내를 보고 `sacho example remote-worker`로
+`sacho help workers --language ko`로 전체 안내를 보고 `sacho template remote-worker`로
 예제 설정을 출력합니다. remote_workers에 노드별 토큰 참조를 등록하고 검사 편집기에서
 워커 ID를 지정합니다. 스크립트는 양쪽의 허용이 필요하며 입력은 워커 로컬에 둡니다.
 원격 초안 테스트는 지원하지 않고 저장한 검사를 중앙에서 대신 실행하지 않습니다.
@@ -306,7 +306,7 @@ worker-join의 표준입력으로 전달하는 방식입니다. 자체 인증정
 인증정보로 복구합니다. 에이전트 선택·철회는 관리자에서 처리합니다. 자세한 절차는
 `sacho help workers --language ko`에 임베딩되어 있습니다.
 
-Docker 모니터링: `sacho example docker`는 Unix 소켓 GET 조회를 사용하는 내장 Lua
+Docker 모니터링: `sacho template docker`는 Unix 소켓 GET 조회를 사용하는 내장 Lua
 예제를 출력합니다. 선택한 실행 노드에 `DOCKER_SOCKET`, `DOCKER_CONTAINER`를
 인젝션하고 `probe_env`에 허용하세요. 조건은 `/healthy gte 1`, 공개 조회값은
 `/display`, 공개 설명 `public_message_pointer`는 `/message`로 설정합니다.
@@ -317,7 +317,7 @@ Docker CLI는 필요 없습니다. 소켓 자체는 읽기 전용 마운트에�
 잔량·수집기 검사는 `failure_status="degraded"`로 지정하면 조건 실패·오류·시간 초과를
 주의로 표시합니다. 기본값은 `outage`입니다. 새 선택 필드는 최신 워커와 함께 쓰세요.
 
-관리자 수치 임계값·추이·신선도·워커 하트비트·검사 예제·안전한 설정 전달·알림 억제는
+관리자 수치 임계값·추이·신선도·워커 하트비트·검사 템플릿·안전한 설정 전달·알림 억제는
 `sacho help monitoring --language ko`의 내장 가이드로 설정할 수 있습니다.
 
 추가 호스트는 프록시 라우트와 인증 앱에 함께 등록하세요.
@@ -329,7 +329,7 @@ Docker CLI는 필요 없습니다. 소켓 자체는 읽기 전용 마운트에�
 ## 모니터링 확장 설정 (v0.1.9 이상)
 
 입력·검사별 동작·cron/시간대·네이티브 Prometheus/DNS/TCP·인증된 외부 보고를 설정하기
-전에 `sacho help monitoring --language ko`를 읽으세요. 관리자 검사 예제에 Shell/Python/Lua와
+전에 `sacho help monitoring --language ko`를 읽으세요. 관리자 검사 템플릿에 Shell/Python/Lua와
 내장 소스 예제가 있으며 환경변수·비밀값에서 이름만 조회하고 암호화 값을 교체할 수 있습니다.
 내장 네트워크 검사는 선택한 최신 에이전트에서 실행하고, 검사별 동작은 메인 서버에서 실행합니다.
 동작 기본값은 없음이며 지연·재시도·쿨다운·실행 후 대기를 지정할 수 있습니다. Push 보고 키는

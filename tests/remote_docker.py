@@ -118,6 +118,10 @@ allow_insecure_http=true
             wait(lambda:any(i['id']==native and i['status']=='operational' and i['display_value'] is not None for i in request('/api/status')['items']))
             scheduled=request('/api/admin/items',{'name':'Remote cron','kind':'lua','target':'return sacho.json_encode({value=sacho.env("LOCATION")})','worker':'edge-new','interval_seconds':5,'timeout_seconds':3,'cron':'*/5 * * * * *','schedule_timezone':'Asia/Seoul','publish_value':True,'display_pointer':'/value'})['id']
             wait(lambda:values().get(scheduled)=='edge-new')
+            inline=request('/api/admin/items',{'name':'Scoped ordinary input on agent','kind':'lua','target':'return sacho.json_encode({value=sacho.env("INLINE_VALUE")})','worker':'edge-new','interval_seconds':60,'timeout_seconds':3,'input_updates':[{'name':'INLINE_VALUE','value':'bound-edge-value','encrypted':False}],'publish_value':True,'display_pointer':'/value'})['id']
+            wait(lambda:values().get(inline)=='bound-edge-value')
+            native_ping=request('/api/admin/items',{'name':'Native ICMP on agent','kind':'ping','target':'127.0.0.1','worker':'edge-new','interval_seconds':30,'timeout_seconds':5,'ping':{'count':2,'min_replies':2,'wait_ms':1000,'interval_ms':100},'publish_value':True,'display_pointer':'/rtt_ms'})['id']
+            wait(lambda:any(i['id']==native_ping and i['status']=='operational' and i['display_value'] is not None for i in request('/api/status')['items']))
             # Verify duplicate result handling through the actual HTTP endpoint.
             docker('pause',a)
             second=add('edge-a',source,'Retry fixture')
@@ -162,7 +166,7 @@ allow_insecure_http=true
             request('/api/admin/items/'+ids['edge-b']+'/run',{})
             old_at=next(i['last_check'] for i in request('/api/admin/items') if i['id']==ids['edge-b'])
             wait(lambda:any(i['id']==ids['edge-b'] and i['last_check'] is not None and i['last_check']!=old_at for i in request('/api/admin/items')))
-            print('PASS: native TCP and timezone cron on an actual remote agent;  static controller + remote Docker workers, node isolation, local secret injection, '
+            print('PASS: native ICMP/TCP, scoped ordinary inputs and timezone cron on an actual remote agent;  static controller + remote Docker workers, node isolation, local secret injection, '
                   'authentication/protocol rejection, duplicate results, lease takeover/stale rejection, '
                   'network reconnect, controller restart and one-time bootstrap/encrypted registered worker')
         finally:

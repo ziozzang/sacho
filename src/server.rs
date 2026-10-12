@@ -122,6 +122,7 @@ pub fn router(app: App) -> Router {
             "/api/admin/inputs/{name}",
             put(crate::inputs::put).delete(crate::inputs::remove),
         )
+        .route("/api/admin/check-templates", get(examples))
         .route("/api/admin/examples", get(examples))
         .route("/api/admin/export", get(export_settings))
         .route(
@@ -453,7 +454,11 @@ fn validate_worker(conn: &rusqlite::Connection, cfg: &Config, spec: &CheckSpec) 
     }
     let allow_scripts = crate::remote::node_permission(conn, cfg, &spec.worker)?
         .ok_or_else(|| bad("Worker is not registered"))?;
-    if !matches!(spec.kind.as_str(), "http" | "prometheus" | "dns" | "tcp") && !allow_scripts {
+    if !matches!(
+        spec.kind.as_str(),
+        "http" | "prometheus" | "dns" | "tcp" | "ping" | "snmp"
+    ) && !allow_scripts
+    {
         return Err(bad("This worker is not allowed to execute scripts"));
     }
     Ok(())
@@ -467,7 +472,7 @@ async fn create_item(
         crate::engine::validate_lua(&spec.target).map_err(|_| bad("Lua syntax is invalid"))?;
     }
     validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
-    let id = db::save(&mut app.db.lock().unwrap(), None, &spec)?;
+    let id = crate::scoped_inputs::save(&app, None, spec)?;
     Ok(Json(json!({"id":id})))
 }
 async fn update_item(
@@ -480,11 +485,12 @@ async fn update_item(
         crate::engine::validate_lua(&spec.target).map_err(|_| bad("Lua syntax is invalid"))?;
     }
     validate_worker(&app.db.lock().unwrap(), &app.cfg, &spec)?;
-    db::save(&mut app.db.lock().unwrap(), Some(id), &spec)?;
+    crate::scoped_inputs::save(&app, Some(id), spec)?;
     Ok(Json(json!({"ok":true})))
 }
 async fn delete_item(State(app): State<App>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let mut conn = app.db.lock().unwrap();
+    let removed = db::items(&conn)?.into_iter().find(|i| i.id == id);
     let tx = conn.transaction()?;
     // An administratively deleted monitor closes its incident without sending a recovery.
     tx.execute("UPDATE incidents SET status='removed',resolved_at=? WHERE item_id=? AND resolved_at IS NULL",params![db::now(),id])?;
@@ -501,6 +507,10 @@ async fn delete_item(State(app): State<App>, Path(id): Path<String>) -> ApiResul
         )?;
     }
     tx.commit()?;
+    drop(conn);
+    if let Some(item) = removed {
+        crate::scoped_inputs::remove_monitor_inputs(&app.cfg, &item.spec);
+    }
     if n == 0 {
         return Err(ApiError(StatusCode::NOT_FOUND, "Service not found.".into()));
     }

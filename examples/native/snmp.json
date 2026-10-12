@@ -1,0 +1,17 @@
+{
+  "name": "SNMP uptime",
+  "kind": "snmp",
+  "target": "192.0.2.10:161",
+  "interval_seconds": 60,
+  "timeout_seconds": 5,
+  "snmp": {
+    "version": "2c",
+    "oid": "1.3.6.1.2.1.1.3.0",
+    "community_env": "SNMP_COMMUNITY"
+  },
+  "required_env": ["SNMP_COMMUNITY"],
+  "publish_value": true,
+  "display_pointer": "/value",
+  "display_label": "Uptime",
+  "metric_unit": "ticks"
+}

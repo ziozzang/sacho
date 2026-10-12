@@ -54,7 +54,7 @@
 
 ## 설정 검증·예제·내보내기
 
-관리자 → 검사 예제에서 HTTP·JSON/TPS·Prometheus·PostgreSQL·Docker를 선택합니다.
+관리자 → 검사 템플릿에서 HTTP·JSON/TPS·Prometheus·PostgreSQL·Docker를 선택합니다.
 조건·표시 설정·필요한 입력을 가진 초안만 열고 자동으로 실행하거나 저장하지
 않습니다. 실행 노드에 입력을 인젝션하고 그 노드의 `probe_env`에서 허용하세요.
 PostgreSQL은 외부 `psql`이 필요하고, 나머지 Lua HTTP 조회는 내장되어 있습니다.
@@ -109,21 +109,21 @@ PostgreSQL은 외부 `psql`이 필요하고, 나머지 Lua HTTP 조회는 내장
 
 ## 실행 예제와 관리자 환경변수·비밀값
 
-**검사 예제**에 Shell script, Python code, Lua script 시작 예제, ICMP ping,
-네이티브 Prometheus/DNS/TCP 및 외부 보고가 있습니다. 선택하면 초안만 열리고,
+**검사 템플릿**에 Shell script, Python code, Lua script 시작 예제,
+네이티브 ICMP/SNMP/Prometheus/DNS/TCP 및 외부 보고가 있습니다. 선택하면 초안만 열리고,
 **초안 테스트**는 검사만 실행하며 **저장**해야 스케줄이 활성화됩니다.
-체크아웃 없이 `sacho example shell`, `python`, `lua`, `ping`으로 예제를 꺼낼 수 있습니다.
-Python은 실행 노드의 `python3`, Shell은 `/bin/sh`, ping은 ICMP 권한이 있는 `ping`이
-필요합니다. Lua는 내장됩니다. ICMP 차단과 HTTP 서비스 장애는 별개입니다.
+체크아웃 없이 `sacho template shell`, `python`, `lua`, `ping`으로 예제를 꺼낼 수 있습니다.
+Python은 실행 노드의 `python3`, Shell은 `/bin/sh`, 네이티브 ping은 ICMP 소켓 권한이
+필요합니다. Lua와 네트워크 프로토콜은 내장됩니다. ICMP 차단과 HTTP 서비스 장애는 별개입니다.
 
 관리자의 **환경변수·비밀값**은 변수 이름, 주입 여부, 암호화 값 저장 여부와 출처만
-보여주며 저장된 값은 다시 반환하지 않습니다. `sacho secrets init --vault
+보여줍니다. 암호화 비밀값은 다시 반환하지 않으며, 일반값은 평문 조회·편집이 가능합니다. `sacho secrets init --vault
 /private/inputs.enc --key-file /private/unlock.key`로 초기화하고 `[secrets]`를 설정해
 한 번 재시작하면 관리자 편집이 활성화됩니다. 암호화 파일과 잠금 해제 키는 별도로
 백업하세요. 값 등록·교체·주입 해제·삭제는 다음 검사부터 재시작 없이 반영됩니다.
 이미 실행 중인 프로세스가 받은 입력은 바뀌지 않습니다.
 
-관리자에서 새 이름의 주입을 허용하면 허용 이름은 SQLite에, 값은 암호화 vault에
+관리자에서 새 이름의 주입을 허용하면 허용 이름은 SQLite에, 암호화 비밀값은 vault에, 명시적으로 선택한 일반값은 SQLite에
 저장됩니다. 서비스 환경변수가 vault보다 우선합니다. 서비스가 상속한 임의 환경변수를
 관리자에서 바로 공개할 수는 없으며, 환경변수 입력은 서버 `probe_env`에 명시해야 합니다.
 PATH, LANG, SACHO_PROBE_*와 설정된 에이전트 인증·SMTP 비밀번호는 관리 대상에서
@@ -157,8 +157,7 @@ Shell은 `"$API_TOKEN"`, Python은 `os.environ["API_TOKEN"]`, Lua는
 
 업데이트한 원격 에이전트에서도 실행할 수 있고 네이티브 네트워크 검사에 스크립트 권한은
 필요 없습니다. PostgreSQL·Docker·시스템·장비별 검사는 신뢰하는 외부 스크립트로 확장합니다.
-SNMP v2c/v3는 아직 네이티브 검사가 아닙니다. 검증한 장비 수집기를 외부 스크립트로 연결하고
-인증 정보는 명시적으로 주입하세요. 검증되지 않은 프로토콜을 지원한다고 표시하지 않습니다.
+SNMP v2c/v3 GET은 네이티브로 지원하며 숫자 OID와 주입한 인증 정보를 사용합니다. MIB 이름 해석·SET·자동 장비 탐색·trap 수신은 지원하지 않습니다.
 
 ## 외부 보고·하트비트
 
@@ -253,8 +252,8 @@ Lua는 `sacho.json_decode(sacho.env("SACHO_EVENT_JSON"))`으로 읽습니다. JS
 | `/api/admin/test` | POST | 로컬 검사 spec → 저장·동작 실행 없는 관측 결과 |
 | `/api/admin/items` | POST | 검사 spec → 생성된 id |
 | `/api/admin/items/{id}` | PUT | 검사 spec 교체, 연속 횟수 초기화·이전 revision 동작 취소 |
-| `/api/admin/inputs` | GET | vault_configured/scope/값 없는 inputs 메타데이터 |
-| `/api/admin/inputs/{name}` | PUT | `{"value":"새 비밀값","enabled":true}`; value를 생략하면 주입 허용만 변경 |
+| `/api/admin/inputs` | GET | vault_configured/scope/암호화 값 제외·일반값 조회 가능한 inputs 메타데이터 |
+| `/api/admin/inputs/{name}` | PUT | `{"value":"새 비밀값","enabled":true,"encrypted":true}`; value를 생략하면 주입 허용만 변경 |
 | `/api/admin/inputs/{name}` | DELETE | vault 값·동적 허용 삭제, 서버 설정은 유지 |
 | `/api/admin/push/{id}/token` | POST | token/endpoint/shown_once, 기존 키 교체 |
 | `/api/admin/push/{id}/token` | DELETE | 보고 키 폐기 |
@@ -279,3 +278,89 @@ https 종류는 HTTP(S) POST를 뜻하며 스크립트 종류의 target에는 �
 횟수 1..100, 시도 1..5, 타임아웃 1..300초, 시간 필드 0..86400초이고 재시도 간격은
 1..86400초입니다. 반복 쿨다운은 최소 5초입니다. 동작 결과로 검사 관측 상태를 바꾸지
 않습니다. 실서버 동작을 켜기 전에 격리한 환경에서 실행 대상을 검증하세요.
+
+## 종류별 활성화·접기·그래프 (v0.1.10)
+
+PromQL은 Prometheus, DNS 옵션은 DNS, HTTP 상태·헤더는 HTTP/Prometheus,
+종료 코드는 스크립트에서만 보이고 활성화됩니다. Push에서는 로컬 실행·cron 설정을
+숨깁니다. 값·추세 선택에 따라 관련 입력을 활성화하며, 비활성 HTTP 헤더의 잘못된 JSON이
+Lua 저장을 막지 않습니다. 수치 설정을 접거나 펼칠 수 있고 수치 바로가기는 접힌 설정을
+엽니다. 이미 규칙·추세가 설정되어 있으면 자동으로 펼칩니다. 공개 그래프도 개별로 접고,
+수치/응답 시간과 곡선/직선을 선택할 수 있으며 자동 갱신 중 선택을 유지합니다.
+곡선은 실제 버킷 값 사이의 형태를 보존하고 과도하게 튀지 않도록 보간합니다. 빈 구간은
+이어 그리지 않으며 호버 값은 실제 평균·최소·최댓값입니다.
+
+## 일반값·암호화 값 선택과 항목별 바인딩
+
+전역 환경변수 관리에 **비밀값 암호화** 선택이 있습니다. PUT 요청의 encrypted는 기본 true로
+기존 요청과 호환됩니다. false이면 일반값을 SQLite에 평문 저장하고 관리자에서 조회·편집할
+수 있습니다. true이면 vault에 암호화하고 반환하지 않습니다. 모드 변경에는 새 값을 입력해야
+하며 체크 해제로 기존 비밀값을 노출하지 않습니다. 일반값은 vault 설정 없이도 사용할 수 있습니다.
+
+검사 편집의 입력 영역에서 이름·값·암호화 여부를 선택해 추가·삭제합니다. 해당 검사와 그 메인
+서버 동작에만 주입하고 같은 이름의 전역 입력보다 우선합니다. 다른 검사에는 허용하지 않습니다.
+암호화 값은 편집 창에서 비어 있으며 비워두면 유지, 새 값을 입력하면 교체, 행을 제거하면
+삭제합니다. 교체는 새 vault 항목을 먼저 준비하고 검사 spec을 원자적으로 변경한 뒤 이전 항목을
+정리합니다. 저장 실패 시 새 항목을 정리하고 검사 삭제 시 소유 비밀값도 삭제합니다. 중단된
+저장·정리 작업은 사용하지 않는 암호화 항목을 남길 수 있습니다. SACHO_ITEM_ 이름은 내부용이며
+전역 입력 목록에 노출하지 않습니다. 안전한 내보내기는 바인딩 값·참조를 제외합니다.
+
+검사 저장·로컬 초안 테스트에 다음 임시 input_updates를 보낼 수 있습니다.
+
+```json
+"input_updates": [
+  {"name":"CHECK_URL","value":"https://example.com/metrics","encrypted":false},
+  {"name":"AUTHORIZATION","value":"Bearer YOUR_PRIVATE_TOKEN","encrypted":true}
+]
+```
+
+input_updates는 저장·반환하지 않습니다. 저장된 input_bindings는 일반값 또는 암호화 내부
+참조입니다. 편집 시 유지하고 키를 제거하면 바인딩을 삭제하며 값을 교체할 때는 input_updates를
+사용합니다. 암호화 참조를 다른 검사로 복사할 수 없습니다. 초안 테스트는 메모리에서만 처리하고
+vault·DB에 저장하지 않습니다. 스크립트가 입력값을 출력할 수 있으므로 인증값을 출력하거나
+공개값으로 선택하지 마세요.
+
+원격 검사의 일반값은 인증된 에이전트 연결로 전달합니다. 메인 서버에서 암호화한 바인딩은
+원격에 전달하지 않습니다. 에이전트 자체 허용 목록·vault에 비밀값을 설정하고 변수 이름으로
+참조하세요. 화면에도 이 차이를 안내하고 원격 암호화 입력을 비활성화합니다. 메인 서버 동작은
+메인 서버에 소유한 입력을 사용합니다.
+
+## 네이티브 ICMP·SNMP
+
+ping은 외부 ping이나 Lua 없이 Rust에서 ICMP echo를 실행합니다. 호스트 이름·IPv4·IPv6를
+대상으로 사용하고 ping 설정에 count(1..10, 기본 3), min_replies(1..count, 기본 1),
+wait_ms(100..10000, 기본 1000), interval_ms(100..5000, 기본 100)를 지정합니다. 최대 대기
+합계가 검사 타임아웃 안에 들어야 합니다. 최소 응답보다 적으면 실패합니다. healthy/rtt_ms/
+rtt_min_ms/rtt_max_ms/loss_percent/sent/received/message를 반환합니다. RTT는 실제 ICMP
+응답 시간이며 응답이 없으면 0을 만들지 않고 null입니다. /rtt_ms로 값·추세를, /loss_percent로
+손실률 규칙을 설정할 수 있습니다. 도메인은 매번 해석한 주소 하나를 사용하므로 두 IP 계열을
+검증하려면 검사를 분리하세요. 실행 노드의 ping 소켓 권한 또는 raw socket 권한이 필요하며
+프로그램이 시스템 권한을 자동 변경하지 않습니다. ICMP 차단과 HTTP 장애는 별개입니다.
+
+SNMP는 host:161 또는 [IPv6]:161을 조회하고 snmp 객체에 다음 설정을 넣습니다.
+
+```json
+{
+  "version":"3","oid":"1.3.6.1.2.1.1.3.0","username":"monitor-user",
+  "security":"authPriv","auth_protocol":"sha256",
+  "auth_env":"SNMP_AUTH_PASSWORD","privacy_env":"SNMP_PRIVACY_PASSWORD"
+}
+```
+
+v2c는 community_env(기본 SNMP_COMMUNITY)를 사용합니다. v3는 noAuthNoPriv/authNoPriv/
+authPriv, SHA1/SHA256 인증·AES128 암호화를 지원합니다. 비밀번호는 변수 이름으로 참조하며
+엔진 발견·시각 동기화를 네이티브로 수행합니다. value/type/oid를 반환하고 /value를 수치·규칙·
+추세에 연결합니다. 정수·counter32/64·gauge32·timeticks(1/100초), 문자열·IP·OID 스칼라를
+지원합니다. OID 부재·인증 실패·지원하지 않는 구조값·시간 초과는 실패입니다. 읽기 전용 GET이며
+SET·외부 snmpget·MIB 이름 DB·trap 데몬·자동 장비 탐색은 포함하지 않습니다. v2c의 community는
+프로토콜상 암호화하지 않으므로 필요하면 v3 authPriv를 사용하세요. 최신 에이전트에서도
+스크립트 권한 없이 네이티브 검사를 실행합니다.
+
+검사 목록은 **검사 템플릿**으로 표시합니다. API는 /api/admin/check-templates를 권장하고
+기존 /api/admin/examples도 유지합니다. CLI는 sacho template이며 example도 호환합니다.
+ping/snmp는 네이티브 JSON 템플릿입니다. shell-disk(df/awk), shell-process(ps/awk),
+shell-http(curl/sed)는 디스크·정확한 프로세스 이름·인증된 사용자 정의 HTTP 예제입니다.
+curl 인증 헤더는 인자 대신 표준입력으로 전달합니다. 일반 HTTP/JSON은 네이티브 템플릿을,
+사용자 정의 처리에는 명시적으로 구분한 Lua 어댑터를 선택하세요. 템플릿은 초안만 엽니다.
+
+SNMPv3 인증·암호화 비밀번호는 최소 8바이트이며 짧거나 빈 값은 키 생성 전에 안전하게 실패합니다.

@@ -1,0 +1,15 @@
+{
+  "name": "ICMP ping",
+  "kind": "ping",
+  "target": "127.0.0.1",
+  "interval_seconds": 30,
+  "timeout_seconds": 10,
+  "ping": {"count": 3, "min_replies": 1, "wait_ms": 1000, "interval_ms": 100},
+  "publish_value": true,
+  "display_pointer": "/rtt_ms",
+  "display_label": "ICMP RTT",
+  "metric_unit": "ms",
+  "publish_trend": true,
+  "trend_pointer": "/rtt_ms",
+  "public_message_pointer": "/message"
+}

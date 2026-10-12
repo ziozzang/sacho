@@ -14,9 +14,10 @@ systems connected by webhooks; they are outside the current product scope.
 
 ![Admin workspace](docs/screenshots/admin-desktop.png)
 
-Built-in Prometheus instant queries, DNS record checks, TCP connection timing and
-per-monitor authenticated Push reports complement HTTP and trusted Shell/Python/Lua
-checks. Admin-managed encrypted inputs support hot rotation. Checks can use cron in
+Built-in Prometheus instant queries, DNS record checks, TCP connection timing,
+ICMP ping, SNMPv2c/v3 GET and per-monitor authenticated Push reports complement
+HTTP and trusted Shell/Python/Lua checks. Admin-managed inputs can be ordinary
+values or encrypted secrets, globally or bound to one monitor, with hot rotation. Checks can use cron in
 an explicit IANA timezone and opt-in controller actions with streaks, delays, retries,
 cooldowns and post-action grace. Language and display timezone use persistent dropdowns.
 See [the embedded monitoring guide](docs/MONITORING.md) for exact protocol and action semantics.
@@ -67,7 +68,7 @@ controls, see [monitoring setup](docs/MONITORING.md), also embedded as
 - Published values stay visible with a timestamp when later queries fail; optional
   public explanations and warning severity distinguish collector issues.
 - Docker container monitoring through native Lua HTTP over a Unix socket, including
-  running/stopped and HEALTHCHECK states: `sacho example docker`.
+  running/stopped and HEALTHCHECK states: `sacho template docker`.
 - Durable observations and logs; 5s, 10s, 30s, 1m, 5m, 30m, 1h and daily aggregation, from a
   one-hour detail view to 90 days. Empty periods stay gray. Uptime is the fraction
   of **observed checks** that passed, not a claim about unobserved wall-clock time.
@@ -207,8 +208,8 @@ MIT. See [third-party attribution](THIRD_PARTY.md).
 ```sh
 sacho help setup
 sacho help setup --language ko
-sacho example prometheus
-sacho example postgresql
+sacho template prometheus
+sacho template postgresql
 sacho secrets --help
 ```
 

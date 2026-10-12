@@ -21,6 +21,11 @@ pub struct Config {
     pub remote_workers: Vec<RemoteWorker>,
     pub secrets: Option<Secrets>,
     #[serde(skip)]
+    pub blocked_input_names: Vec<String>,
+    #[serde(skip)]
+    pub runtime_literals:
+        std::sync::Arc<std::sync::RwLock<std::collections::BTreeMap<String, String>>>,
+    #[serde(skip)]
     pub probe_overrides: std::collections::BTreeMap<String, String>,
     #[serde(skip)]
     pub runtime_inputs: std::sync::Arc<std::sync::RwLock<Vec<String>>>,
@@ -117,6 +122,8 @@ impl Default for Config {
             secret_values: Default::default(),
             runtime_inputs: Default::default(),
             probe_overrides: Default::default(),
+            runtime_literals: Default::default(),
+            blocked_input_names: vec![],
         }
     }
 }
@@ -141,6 +148,8 @@ impl Config {
     }
     pub fn manageable_input(&self, name: &str) -> bool {
         crate::secrets::valid_name(name)
+            && !name.starts_with("SACHO_ITEM_")
+            && !self.blocked_input_names.iter().any(|n| n == name)
             && !self.remote_workers.iter().any(|w| w.token_env == name)
             && self.smtp.as_ref().and_then(|s| s.password_env.as_deref()) != Some(name)
     }
@@ -150,6 +159,9 @@ impl Config {
         }
         if let Ok(value) = std::env::var(name) {
             return Ok(value);
+        }
+        if let Some(value) = self.runtime_literals.read().unwrap().get(name) {
+            return Ok(value.clone());
         }
         let values = match &self.secrets {
             Some(paths) => {

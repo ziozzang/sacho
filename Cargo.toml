@@ -1,6 +1,6 @@
 [package]
 name = "sacho"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT"
@@ -40,6 +40,8 @@ sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json
 cron = "0.17"
 chrono-tz = "0.10"
 hickory-resolver = { version = "0.26", default-features = false, features = ["tokio", "system-config"] }
+surge-ping = "0.8"
+snmp2 = { version = "0.5", default-features = false, features = ["tokio", "crypto-rust", "heap_buffers"] }
 
 [dev-dependencies]
 rcgen = "0.14"

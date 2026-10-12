@@ -236,26 +236,25 @@ pub async fn worker(db: Db, cfg: Arc<Config>, mut stop: watch::Receiver<bool>) {
             )
             .optional()
         };
-        let permitted = valid
-            .ok()
-            .flatten()
-            .is_some_and(|(spec, status, revision)| {
-                serde_json::from_str::<CheckSpec>(&spec).is_ok_and(|s| s.enabled)
+        let current_spec = valid.ok().flatten().and_then(|(spec, status, revision)| {
+            serde_json::from_str::<CheckSpec>(&spec).ok().filter(|s| {
+                s.enabled
                     && Some(revision) == payload["revision"].as_u64()
                     && (action.trigger == "failure")
                         == matches!(status.as_str(), "outage" | "degraded")
-            });
-        if !permitted {
+            })
+        });
+        let Some(current_spec) = current_spec else {
             let _=db.lock().unwrap().execute("UPDATE outbox SET attempts=CAST(json_extract(payload,'$.action.max_attempts') AS INTEGER),error='suppressed: action state or configuration changed' WHERE id=?",[id]);
             continue;
-        }
+        };
         // Persist attempt before execution. Explicit retries may run again after a crash;
         // targets must be idempotent. Default max_attempts=1 never retries an uncertain attempt.
         if db.lock().unwrap().execute("UPDATE outbox SET attempts=attempts+1,next_at=?,error='Action running or interrupted' WHERE id=?",params![db::now()+action.timeout_seconds as i64+action.retry_seconds as i64,id]).is_err(){continue;}
         let mut context = payload["context"].clone();
         context["attempt"] = json!(attempts + 1);
         context["delivery_id"] = payload["delivery_id"].clone();
-        let result = tokio::select! {_=stop.changed()=>return,r=execute(&cfg,&action,&context,payload["delivery_id"].as_str().unwrap_or_default())=>r};
+        let result = tokio::select! {_=stop.changed()=>return,r=async {let scoped=crate::scoped_inputs::prepare_probe(&current_spec,&cfg)?;execute(&scoped,&action,&context,payload["delivery_id"].as_str().unwrap_or_default()).await}=>r};
         let conn = db.lock().unwrap();
         if result.is_ok() {
             let _ = conn.execute(

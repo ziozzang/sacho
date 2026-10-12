@@ -27,6 +27,10 @@ fn setup_guide(language: GuideLanguage) -> &'static str {
 #[derive(Clone, Copy, ValueEnum)]
 enum ExampleName {
     Ping,
+    Snmp,
+    ShellDisk,
+    ShellProcess,
+    ShellHttp,
     Shell,
     Python,
     Lua,
@@ -101,6 +105,7 @@ enum Commands {
         action: DatabaseAction,
     },
     /// Print an embedded data-source or worker setup example
+    #[command(name = "template", alias = "example")]
     Example {
         #[arg(value_enum)]
         name: ExampleName,
@@ -251,7 +256,11 @@ async fn main() -> Result<()> {
         Commands::Example { name } => {
             use std::io::Write;
             let source = match name {
-                ExampleName::Ping => include_str!("../examples/lua/ping.lua"),
+                ExampleName::Ping => include_str!("../examples/native/ping.json"),
+                ExampleName::Snmp => include_str!("../examples/native/snmp.json"),
+                ExampleName::ShellDisk => include_str!("../examples/shell/disk-usage.sh"),
+                ExampleName::ShellProcess => include_str!("../examples/shell/process-count.sh"),
+                ExampleName::ShellHttp => include_str!("../examples/shell/http-auth.sh"),
                 ExampleName::Shell => include_str!("../examples/shell/basic.sh"),
                 ExampleName::Python => include_str!("../examples/python/basic.py"),
                 ExampleName::Lua => include_str!("../examples/lua/basic.lua"),

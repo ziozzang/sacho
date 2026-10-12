@@ -26,3 +26,7 @@ pub mod actions;
 pub mod push;
 pub mod scheduling;
 pub mod sources;
+
+pub mod scoped_inputs;
+
+pub mod network_probes;

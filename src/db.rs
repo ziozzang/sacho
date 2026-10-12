@@ -37,10 +37,18 @@ pub struct CheckSpec {
     pub dns_expected: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<crate::actions::Action>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ping: Option<crate::network_probes::Ping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snmp: Option<crate::network_probes::Snmp>,
     pub expected_status: u16,
     pub headers_env: std::collections::BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub required_env: Vec<String>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub input_bindings: std::collections::BTreeMap<String, crate::scoped_inputs::Binding>,
+    #[serde(skip_serializing)]
+    pub input_updates: Vec<crate::scoped_inputs::Update>,
     pub expected_exit: i32,
     pub contains: String,
     pub json_pointer: String,
@@ -96,9 +104,13 @@ impl Default for CheckSpec {
             dns_server: String::new(),
             dns_expected: vec![],
             actions: vec![],
+            ping: None,
+            snmp: None,
             expected_status: 200,
             headers_env: Default::default(),
             required_env: Vec::new(),
+            input_bindings: Default::default(),
+            input_updates: vec![],
             expected_exit: 0,
             contains: String::new(),
             json_pointer: String::new(),
@@ -122,6 +134,8 @@ impl Default for CheckSpec {
 }
 impl CheckSpec {
     pub fn validate(&self) -> Result<()> {
+        crate::network_probes::validate(self)?;
+        crate::scoped_inputs::validate(self)?;
         crate::scheduling::validate(self)?;
         crate::sources::validate(self)?;
         ensure!(self.actions.len() <= 2, "at most two actions per monitor");
@@ -168,7 +182,16 @@ impl CheckSpec {
         ensure!(
             matches!(
                 self.kind.as_str(),
-                "http" | "shell" | "python" | "lua" | "prometheus" | "dns" | "tcp" | "push"
+                "http"
+                    | "shell"
+                    | "python"
+                    | "lua"
+                    | "prometheus"
+                    | "dns"
+                    | "tcp"
+                    | "ping"
+                    | "snmp"
+                    | "push"
             ),
             "unsupported check kind"
         );

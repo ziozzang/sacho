@@ -220,10 +220,10 @@ Do not return private context or credential-bearing stderr as public display.
 Lua has JSON/HTTP/env/exec but no io/os/package/debug or dynamic modules. Provider
 logic belongs in external scripts/scenarios, never in the Sacho binary.
 
-Export the embedded Lua examples with `sacho example prometheus`,
-`sacho example postgresql`, or `sacho example external-command`; no checkout is needed.
+Export the embedded Lua examples with `sacho template prometheus`,
+`sacho template postgresql`, or `sacho template external-command`; no checkout is needed.
 
-Prometheus: use `sacho example prometheus` with injected PROMETHEUS_URL and
+Prometheus: use `sacho template prometheus` with injected PROMETHEUS_URL and
 PROMETHEUS_QUERY. It calls the instant query API, accepts a scalar or exactly one
 float vector sample, and rejects empty/multiple/nonfinite results. Select or
 aggregate deliberately; `sum(rate(http_requests_total[5m]))` produces a TPS-style
@@ -232,7 +232,7 @@ rate, while `up{job="example",instance="example:9100"}` can gate health with
 the query evaluation timestamp is not proof of fresh source scraping. This is
 periodic sampling, not importing Prometheus historical data or remote-write storage.
 
-PostgreSQL: install `psql` on the service host, then use `sacho example postgresql`.
+PostgreSQL: install `psql` on the service host, then use `sacho template postgresql`.
 Inject PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSFILE, PGCONNECT_TIMEOUT and
 PGSQL_QUERY. Set PGSQL_QUERY to a SELECT returning one JSON object with a scalar `value` field, e.g.
 `SELECT json_build_object('value',1,'version',version())`. Use a read-only DB role;
@@ -333,7 +333,7 @@ outage/recovery signals, not a request to implement incident management. Do not
 expand into general enterprise workflows without an explicit operator request.
 
 Remote monitoring uses one SQLite controller and outbound `sacho worker` processes.
-`sacho help workers` embeds the complete guide and `sacho example remote-worker`
+`sacho help workers` embeds the complete guide and `sacho template remote-worker`
 prints its configuration. Register per-node token references in remote_workers;
 assign a monitor's worker ID in the editor. Scripts require opt-in on both ends;
 inputs stay local to workers. Remote draft tests are unavailable, and saved checks
@@ -345,7 +345,7 @@ the controller stores hashes only. Lost replies recover with that credential, no
 bootstrap replay. Select/revoke agents in admin. The complete procedure is embedded
 in `sacho help workers`. Keep the legacy static registration path compatible.
 
-Docker monitoring: `sacho example docker` prints a built-in Lua scenario using
+Docker monitoring: `sacho template docker` prints a built-in Lua scenario using
 GET requests over a local Unix socket. Inject `DOCKER_SOCKET` and
 `DOCKER_CONTAINER` on the selected execution node, allow them in `probe_env`,
 set the health condition `/healthy gte 1`, publish `/display`, and optionally
@@ -373,7 +373,7 @@ forwarded-host headers do not grant permission. Reload the service after editing
 
 Read `sacho help monitoring --language en` before configuring runtime inputs, actions,
 cron/timezones, native Prometheus/DNS/TCP or authenticated external reports. The admin
-Check examples catalogue includes Shell/Python/Lua starters and native-source presets.
+Check templates catalogue includes Shell/Python/Lua starters and native-source presets.
 Environment & secrets manages encrypted local inputs with names-only readback and
 hot rotation. Native network probes execute on the selected updated node; per-check
 actions execute on the controller, default to none, and have delay/retry/cooldown/grace

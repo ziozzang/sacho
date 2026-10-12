@@ -148,6 +148,8 @@ pub async fn probe(item: &Item) -> Observation {
 pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
     let start = Instant::now();
     let result = tokio::time::timeout(Duration::from_secs(item.spec.timeout_seconds), async {
+        let scoped = crate::scoped_inputs::prepare_probe(&item.spec, cfg)?;
+        let cfg = &scoped;
         let (output, code) = if matches!(item.spec.kind.as_str(), "http" | "prometheus") {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(item.spec.timeout_seconds))
@@ -188,6 +190,10 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
                 String::from_utf8_lossy(&body).into_owned()
             };
             (output, status as i32)
+        } else if item.spec.kind == "ping" {
+            (crate::network_probes::ping(&item.spec).await?, 0)
+        } else if item.spec.kind == "snmp" {
+            (crate::network_probes::snmp(&item.spec, cfg).await?, 0)
         } else if item.spec.kind == "tcp" {
             (crate::sources::tcp(&item.spec.target).await?, 0)
         } else if item.spec.kind == "dns" {
@@ -210,10 +216,15 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
             format!("expected result {expected}, received {code}")
         };
         if detail.is_empty()
-            && item.spec.kind == "dns"
+            && matches!(item.spec.kind.as_str(), "dns" | "ping")
             && serde_json::from_str::<serde_json::Value>(&output)?["healthy"] == 0
         {
-            detail = "DNS answer set does not match expected records".into();
+            detail = if item.spec.kind == "ping" {
+                "ICMP reply condition failed"
+            } else {
+                "DNS answer set does not match expected records"
+            }
+            .into();
         }
         if detail.is_empty()
             && !item.spec.contains.is_empty()
@@ -300,8 +311,8 @@ pub async fn probe_with_config(item: &Item, cfg: &Config) -> Observation {
     }
 }
 fn safe_error(error: &anyhow::Error, item: &Item) -> String {
-    if matches!(item.spec.kind.as_str(), "http" | "prometheus") {
-        "HTTP request or condition failed; verify connectivity, TLS and output format".into()
+    if matches!(item.spec.kind.as_str(), "http" | "prometheus" | "snmp") {
+        "Network request or condition failed; verify connectivity, TLS and output format".into()
     } else {
         format!("{error:#}").chars().take(2000).collect()
     }

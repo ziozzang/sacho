@@ -18,8 +18,9 @@ v0.1.4에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL �
 [English](README.md) · [Lua 시나리오](docs/LUA.ko.md) · [배포](docs/DEPLOYMENT.ko.md)
 
 HTTP·Shell/Python/Lua 외에 네이티브 Prometheus 순간 쿼리, DNS 레코드, TCP 연결 시간,
-검사별 인증된 Push 보고를 지원합니다. 관리자에서 암호화 입력을 교체하면 다음 검사부터
-반영됩니다. IANA 시간대의 cron과 선택적 메인 서버 동작에 연속 횟수·지연·재시도·쿨다운·
+ICMP ping, SNMPv2c/v3 GET과 검사별 인증된 Push 보고를 지원합니다. 관리자에서 입력값을
+일반 값 또는 암호화 비밀값으로 관리하고 검사별로 연결할 수 있습니다. 교체한 값은 다음
+검사부터 반영됩니다. IANA 시간대의 cron과 선택적 메인 서버 동작에 연속 횟수·지연·재시도·쿨다운·
 실행 후 대기를 지정할 수 있습니다. 언어·표시 시간대는 드롭다운으로 선택해 저장합니다.
 정확한 지원 범위와 동작은 [내장 모니터링 안내](docs/MONITORING.ko.md)를 참고하세요.
 
@@ -146,8 +147,8 @@ MIT 라이선스. [참고 코드·라이선스](THIRD_PARTY.md).
 ```sh
 sacho help setup
 sacho help setup --language ko
-sacho example prometheus
-sacho example postgresql
+sacho template prometheus
+sacho template postgresql
 sacho secrets --help
 ```
 
@@ -160,7 +161,7 @@ sacho secrets --help
 키를 표준입력으로 받아 자체 인증정보를 암호화 저장하고 중앙 정보와 교환합니다.
 중앙은 해시만 보관하며 등록 응답 손실 복구와 즉시 권한 철회를 지원합니다.
 
-Docker 컨테이너는 `sacho example docker`의 내장 Lua 예제로 Unix 소켓을 통해 조회할
+Docker 컨테이너는 `sacho template docker`의 내장 Lua 예제로 Unix 소켓을 통해 조회할
 수 있습니다. 별도 Docker CLI 없이 실행·중지·헬스체크 상태를 검사합니다.
 조회 실패 시에도 마지막 수치와 시각이 남으며, 공개 설명과 주의 등급을 설정할 수
 있습니다. 자세한 설정은 [Lua 문서](docs/LUA.ko.md)를 참조하세요.

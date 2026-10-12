@@ -60,7 +60,7 @@ heartbeat during execution; update them for accurate long-running visibility.
 
 ## Setup validation, examples and export
 
-Admin → Check examples offers HTTP, JSON/TPS, Prometheus, PostgreSQL and Docker.
+Admin → Check templates offers HTTP, JSON/TPS, Prometheus, PostgreSQL and Docker.
 Choosing a card opens a draft with its scalar/condition configuration and named
 input dependencies; it never executes or saves automatically. Inject inputs on
 the chosen node and allow them in that node's `probe_env`. PostgreSQL requires
@@ -125,17 +125,15 @@ before sending, so an in-flight external send cannot be recalled.
 
 ## Executable starters and private runtime inputs
 
-The admin **Check examples** catalogue includes standalone **Shell script**, **Python code**
-and **Lua script** starters, ICMP ping, native Prometheus/DNS/TCP, external reports,
+The admin **Check templates** catalogue includes standalone **Shell script**, **Python code**
+and **Lua script** starters, native ICMP/SNMP/Prometheus/DNS/TCP, external reports,
 and Lua adapters for JSON APIs, PostgreSQL and Docker. Selecting a card creates a draft;
 **Test draft** runs only the check, and **Save service** enables its schedule. Export
-starters without a checkout with `sacho example shell`, `python`, `lua` or `ping`.
-Python needs `python3`, Shell needs `/bin/sh`, and the ping example needs `ping` with
-ICMP permission. Lua is embedded. A blocked ping does not imply a failed HTTP service.
+starters without a checkout with `sacho template shell`, `python`, `lua` or `ping`.
+Python needs `python3`, Shell needs `/bin/sh`, and native ping needs ICMP socket permission. Lua and network protocols are embedded. A blocked ping does not imply a failed HTTP service.
 
-The admin **Environment & secrets** tab lists names, injection permission, whether an
-encrypted value exists, and whether the effective source is the service environment,
-vault, or missing. It never returns stored values. Initialize a vault with
+The admin **Environment & secrets** tab lists names, injection permission, whether a value is stored and encrypted, and whether the effective source is the service environment,
+vault, or missing. Encrypted values are never returned; explicitly ordinary values have plaintext readback. Initialize a vault with
 `sacho secrets init --vault /private/inputs.enc --key-file /private/unlock.key`, configure
 `[secrets]`, and restart once to enable editing. The unlock key stays outside the database
 and should be backed up separately from the encrypted file. Register, rotate, disable
@@ -143,7 +141,7 @@ or delete input values in the admin. Subsequent checks use the updated value wit
 restarting. Changes do not modify inputs already captured by a running process.
 
 New admin-managed input names grant local probe access explicitly; the grant names are
-stored in SQLite, the values in the encrypted vault. Environment values take precedence.
+stored in SQLite, encrypted values in the vault and explicitly ordinary values in SQLite. Environment values take precedence.
 Arbitrary inherited service environment names cannot be exposed through this UI;
 existing environment inputs need an explicit `probe_env` entry in server configuration.
 `PATH`, `LANG`, `SACHO_PROBE_*`, configured worker credentials and SMTP passwords cannot
@@ -185,9 +183,7 @@ configuration and secret values. Complete database backups are private operation
 These native checks also run on registered agents with the updated executable. Script
 permission is not required for these built-in network probes. PostgreSQL, Docker,
 custom protocol, filesystem and device scenarios remain available through trusted scripts.
-SNMP v2c/v3 is not currently a native check; use an installed, vetted device collector through
-an external script with explicitly injected credentials. Unsupported protocols are not
-advertised as verified support.
+Native SNMP supports read-only v2c/v3 GET with numeric OIDs; see its options below. MIB-name resolution, SET, bulk discovery and trap reception are not implemented.
 
 ## External reports / heartbeat
 
@@ -295,16 +291,16 @@ that forged identity headers sent to a public proxy confer administrator access.
 | `/api/admin/test` | POST | A local check spec; returns observation and validation without saving or actions |
 | `/api/admin/items` | POST | A check spec; returns its generated `id` |
 | `/api/admin/items/{id}` | PUT | Replacement check spec; resets streaks and invalidates queued old-revision actions |
-| `/api/admin/inputs` | GET | `vault_configured`, `scope:"local"`, and names-only `inputs` metadata |
-| `/api/admin/inputs/{name}` | PUT | `{"value":"new secret","enabled":true}`; omit `value` to change injection permission only |
+| `/api/admin/inputs` | GET | `vault_configured`, `scope:"local"`, and `inputs` metadata; encrypted values omitted, ordinary values readable |
+| `/api/admin/inputs/{name}` | PUT | `{"value":"new secret","enabled":true,"encrypted":true}`; omit `value` to change injection permission only |
 | `/api/admin/inputs/{name}` | DELETE | Removes the vault value and dynamic grant; preserves server configuration |
 | `/api/admin/push/{id}/token` | POST | Returns one-time-visible `token`, `endpoint`, `shown_once`; replaces the previous key |
 | `/api/admin/push/{id}/token` | DELETE | Revokes the reporting key |
 
 Read a catalogue `spec`, modify only the needed fields, validate, then save. Store real
 secrets through the protected inputs endpoint, never in a saved `target`, `actions[].body`
-or literal HTTP header. API errors do not echo secret values. Names-only GET cannot recover
-a previously stored secret; retain it in the operator's own secret system if needed.
+or literal HTTP header. API errors do not echo secret values. GET cannot recover
+a previously stored encrypted secret; retain it in the operator's own secret system if needed.
 
 A check's optional `actions` array supports one entry per trigger (at most two):
 
@@ -332,3 +328,106 @@ the script source. Counts are 1..100, attempts 1..5, timeout 1..300 seconds, tim
 0..86400 except retry 1..86400. Repeat mode requires cooldown >=5. These controls do not
 change the monitoring observation into an action result. Test the desired target in an
 isolated environment before enabling actions on a live monitor.
+
+## Source-aware controls and graph presentation (v0.1.10)
+
+The check editor hides and disables source-specific controls: PromQL only for Prometheus,
+DNS options only for DNS, expected HTTP status/credential headers only for HTTP/Prometheus,
+and exit code only for scripts. Push hides local execution and cron controls. Optional
+value/trend selections enable their dependent inputs. Inactive malformed HTTP-header JSON
+cannot block a script save. Values/graphs can be folded; the Values section shortcut opens
+its fold. Existing configured rules/trends open automatically. Public numeric graphs have
+independent folds, metric/latency selection and Smooth/Straight line choices, retained while
+polling. Smooth uses shape-preserving interpolation through real bucket values; missing
+buckets split paths, and hover markers still report actual bucket averages/min/max.
+
+## Plain and encrypted input choices; bindings owned by one check
+
+The global Environment & secrets panel has an **Encrypt secret value** checkbox.
+`PUT /api/admin/inputs/{name}` adds `encrypted` (default true for backward compatibility).
+With false, the value is ordinary plaintext in SQLite and may be returned in the admin GET.
+With true, it is stored in the encrypted vault and GET returns no value. Changing encryption
+mode requires a newly supplied value; unchecking the box does not reveal a stored secret.
+Ordinary global inputs work without a configured vault. Secrets require vault initialization.
+Deleting removes both storage and dynamic injection permission, subject to configuration-owned
+allowlists. Runtime changes take effect on subsequent executions, including after restart.
+
+In a check's Inputs section, add rows with a name, value and encryption choice. These
+bindings override same-name global inputs only for that check and its controller actions.
+They do not grant other checks access. Saved encrypted values stay blank in the editor;
+leave blank to retain, type a value to rotate, or remove a row to delete. Plain values are
+readable/editable. Secret rotations create immutable new vault entries before atomically
+changing the check spec; old entries are cleaned up after successful save. A failed save
+cleans newly staged entries. Monitor deletion also cleans its encrypted input entries.
+An interrupted save/cleanup can leave unused encrypted entries; names with `SACHO_ITEM_`
+are internal and never appear as reusable global inputs. Vault data/key backups remain
+private; safe metadata exports omit all binding values and reference maps.
+
+Check-save and local draft-test bodies accept transient `input_updates`:
+
+```json
+"input_updates": [
+  {"name":"CHECK_URL","value":"https://example.com/metrics","encrypted":false},
+  {"name":"AUTHORIZATION","value":"Bearer YOUR_PRIVATE_TOKEN","encrypted":true}
+]
+```
+
+Updates are never serialized into saved specs or API readback. Saved `input_bindings`
+contain ordinary values or encrypted internal references; retain these entries unchanged
+when editing, remove a key to delete a binding, and use `input_updates` to replace values.
+An encrypted reference cannot be rebound to a different monitor. Draft tests resolve supplied
+inputs in memory without writing vault/SQLite. Arbitrary scripts can still print inputs;
+avoid putting credentials in probe output or selecting them for public display.
+
+For remote checks, inline ordinary inputs are carried over the authenticated worker channel.
+Controller-encrypted bindings are rejected. Configure secret inputs in the agent's own
+allowlist/vault and reference their variable names in the check; the UI explains this and
+disables inline remote encryption. Controller actions use controller-owned inputs.
+
+## Native ICMP and SNMP options
+
+`kind="ping"` uses ICMP echo directly in Rust; no Lua or external ping executable.
+The target is a hostname or IPv4/IPv6 address. Optional `ping` settings are
+`count` (1..10, default 3), `min_replies` (1..count, default 1), `wait_ms`
+(100..10000, default 1000), `interval_ms` (100..5000, default 100). Their worst-case
+sum must fit `timeout_seconds`. The check fails if fewer than min_replies return.
+Output includes `healthy`, `rtt_ms` (mean actual ICMP RTT), `rtt_min_ms`, `rtt_max_ms`,
+`loss_percent`, `sent`, `received`, and a safe summary `message`. No replies means RTT is
+null rather than fabricated zero. Select `/rtt_ms` for display/trend or `/loss_percent`
+for packet-loss rules. Hostname targets use one resolved address per check; use separate
+checks to verify both IP families. The executing node must permit Linux ping sockets
+(`ping_group_range`) or have appropriate raw-socket capability. Sacho does not change
+system permissions automatically, and ICMP blocking does not imply a failed HTTP service.
+
+`kind="snmp"` targets `host:161` or `[IPv6]:161`. Its `snmp` object supports:
+
+```json
+{
+  "version":"3", "oid":"1.3.6.1.2.1.1.3.0", "username":"monitor-user",
+  "security":"authPriv", "auth_protocol":"sha256",
+  "auth_env":"SNMP_AUTH_PASSWORD", "privacy_env":"SNMP_PRIVACY_PASSWORD"
+}
+```
+
+For version `2c`, use `community_env` (default SNMP_COMMUNITY). Version `3` supports
+noAuthNoPriv, authNoPriv and authPriv; authentication supports sha1/sha256 and privacy
+uses AES128. Password fields are input names, never credential literals. Engine discovery
+and bounded engine-time synchronization happen natively. Output is `value`, `type`, `oid`;
+select `/value` for latest scalar/rules/trends. Numeric types include signed integers,
+counter32/counter64, gauge32 and timeticks (hundredths of a second); text, IP and OID
+scalars are displayable. Missing OIDs, authorization errors, unsupported structured values
+and timeout fail the check. Only GET is used: no SET, external snmpget, MIB database,
+trap daemon or device discovery. SNMPv2c sends community information without protocol
+privacy; use v3 authPriv where needed. These native probes also run on updated agents
+without enabling script execution.
+
+The preferred catalogue API is `/api/admin/check-templates`; `/api/admin/examples` is
+retained as an alias. CLI uses `sacho template`, with `example` retained as an alias.
+Available native exports include `ping` and `snmp`. Detailed Shell exports are
+`shell-disk`, `shell-process`, `shell-http`: read-only filesystem percent (df/awk), exact
+process presence (ps/awk), and custom authenticated HTTP (curl/sed). Authorization is
+provided to curl through stdin configuration rather than argv. Standard HTTP/JSON uses
+a native template. Lua adapters are explicitly labeled custom; select them only for
+custom scenarios. Templates open drafts and never enable monitoring by themselves.
+
+SNMPv3 authentication/privacy passwords must have at least eight bytes. Short or empty values fail safely before protocol key derivation.

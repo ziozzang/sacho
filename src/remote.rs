@@ -153,7 +153,7 @@ pub fn claim(
             || (!allow_scripts
                 && !matches!(
                     item.spec.kind.as_str(),
-                    "http" | "prometheus" | "dns" | "tcp"
+                    "http" | "prometheus" | "dns" | "tcp" | "ping" | "snmp"
                 ))
         {
             continue;
@@ -227,7 +227,7 @@ pub fn complete(
     if !allow_scripts
         && !matches!(
             item.spec.kind.as_str(),
-            "http" | "prometheus" | "dns" | "tcp"
+            "http" | "prometheus" | "dns" | "tcp" | "ping" | "snmp"
         )
     {
         return Ok(false);
@@ -507,6 +507,7 @@ pub async fn run(path: &FilePath) -> Result<()> {
     let worker: WorkerConfig = toml::from_str(&std::fs::read_to_string(path)?)?;
     let client = worker_client(&worker)?;
     let mut cfg = Config {
+        blocked_input_names: vec![worker.token_env.clone()],
         probe_env: worker.probe_env,
         secrets: worker.secrets,
         ..Default::default()
@@ -601,7 +602,7 @@ pub async fn run(path: &FilePath) -> Result<()> {
                     && (worker.allow_scripts
                         || matches!(
                             assignment.spec.kind.as_str(),
-                            "http" | "prometheus" | "dns" | "tcp"
+                            "http" | "prometheus" | "dns" | "tcp" | "ping" | "snmp"
                         )),
                 "unsupported assignment"
             );
