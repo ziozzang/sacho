@@ -361,3 +361,10 @@ The default remains `outage`; use updated workers for these optional fields.
 Monitoring thresholds, scalar charts, freshness, worker heartbeats, setup catalogue,
 safe metadata export and notification delay/maintenance are documented offline
 in `sacho help monitoring` (English/Korean). Configure these through admin.
+
+Additional hostnames: register every alias in your proxy routes and authentication
+application. Configure `public_origins=["https://monitor.example.com"]` to permit
+admin writes and subscriptions from an explicit additional origin. Keep
+`public_url` as the canonical origin for email links and enrollment metadata.
+Origins are exact HTTP(S) origins, at most 16; wildcards and arbitrary Host or
+forwarded-host headers do not grant permission. Reload the service after editing.

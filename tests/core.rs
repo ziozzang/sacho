@@ -422,3 +422,46 @@ async fn public_value_survives_failed_check_without_leaking_logs() -> anyhow::Re
     assert!(!data.to_string().contains("secret-token"));
     Ok(())
 }
+
+#[tokio::test]
+async fn additional_origin_allows_admin_writes_without_trusting_host() -> anyhow::Result<()> {
+    let mut app = app(true);
+    let cfg = Arc::make_mut(&mut app.cfg);
+    cfg.public_origins = vec!["https://monitor.example.com".into()];
+    cfg.validate()?;
+    let router = router(app);
+    for (origin, expected) in [
+        ("https://monitor.example.com", StatusCode::OK),
+        ("https://evil.example.com", StatusCode::FORBIDDEN),
+        ("null", StatusCode::FORBIDDEN),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/admin/settings")
+                    .method("PUT")
+                    .header("X-Forwarded-Email", "admin@example.com")
+                    .header("X-Sacho-Request", "1")
+                    .header("Content-Type", "application/json")
+                    .header("Origin", origin)
+                    .header("Host", "monitor.example.com")
+                    .body(Body::from(
+                        r#"{"title":"Example","description":"Alias check"}"#,
+                    ))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let mut cfg = Config::default();
+    for origin in [
+        "https://*.example.com",
+        "https://example.com/path",
+        "https://user:pass@example.com",
+        "https://example.com?secret=x",
+    ] {
+        cfg.public_origins = vec![origin.into()];
+        assert!(cfg.validate().is_err(), "{origin}");
+    }
+    Ok(())
+}

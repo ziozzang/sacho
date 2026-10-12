@@ -86,13 +86,12 @@ async fn admin_auth(State(app): State<App>, request: Request, next: Next) -> Res
             .into_response();
         }
         if let Some(origin) = request.headers().get(header::ORIGIN)
-            && origin.to_str().ok() != Some(app.cfg.public_url.trim_end_matches('/'))
+            && !origin
+                .to_str()
+                .is_ok_and(|origin| app.cfg.allows_origin(origin))
         {
-            return ApiError(
-                StatusCode::FORBIDDEN,
-                "Origin does not match public_url.".into(),
-            )
-            .into_response();
+            return ApiError(StatusCode::FORBIDDEN, "Origin is not allowed.".into())
+                .into_response();
         }
     }
     next.run(request).await
@@ -555,7 +554,9 @@ async fn subscribe(
         return Err(bad("X-Sacho-Request: 1 required."));
     }
     if let Some(origin) = headers.get(header::ORIGIN)
-        && origin.to_str().ok() != Some(app.cfg.public_url.trim_end_matches('/'))
+        && !origin
+            .to_str()
+            .is_ok_and(|origin| app.cfg.allows_origin(origin))
     {
         return Err(ApiError(StatusCode::FORBIDDEN, "Origin mismatch.".into()));
     }

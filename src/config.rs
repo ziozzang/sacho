@@ -8,6 +8,8 @@ pub struct Config {
     pub bind: String,
     pub database: String,
     pub public_url: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub public_origins: Vec<String>,
     pub title: String,
     pub description: String,
     pub auth: Auth,
@@ -97,6 +99,7 @@ impl Default for Config {
             bind: "127.0.0.1:8080".into(),
             database: "sacho.db".into(),
             public_url: "http://127.0.0.1:8080".into(),
+            public_origins: vec![],
             title: "Sacho".into(),
             description: "Service health, recorded with care.".into(),
             auth: Auth::default(),
@@ -187,6 +190,26 @@ impl Config {
                         && !name.is_empty()),
             "invalid probe_env allowlist"
         );
+        ensure!(self.public_origins.len() <= 16, "too many public origins");
+        let mut origins = std::collections::HashSet::new();
+        for origin in &self.public_origins {
+            let url = reqwest::Url::parse(origin)?;
+            ensure!(
+                matches!(url.scheme(), "http" | "https")
+                    && url.host_str().is_some_and(|host| !host.contains('*'))
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+                    && url.path() == "/"
+                    && url.origin().ascii_serialization() == origin.trim_end_matches('/'),
+                "public_origins must contain normalized HTTP(S) origins"
+            );
+            ensure!(
+                origins.insert(origin.trim_end_matches('/')),
+                "duplicate public origin"
+            );
+        }
         let url = reqwest::Url::parse(&self.public_url)?;
         ensure!(
             matches!(url.scheme(), "http" | "https")
@@ -235,5 +258,15 @@ impl Config {
             }
         }
         Ok(())
+    }
+}
+
+impl Config {
+    pub fn allows_origin(&self, origin: &str) -> bool {
+        origin == self.public_url.trim_end_matches('/')
+            || self
+                .public_origins
+                .iter()
+                .any(|allowed| origin == allowed.trim_end_matches('/'))
     }
 }
