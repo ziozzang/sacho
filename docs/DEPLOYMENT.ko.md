@@ -2,6 +2,8 @@
 
 [English](DEPLOYMENT.md)
 
+시험을 거친 프록시 예시와 단계별 설치는 [DEPLOY.ko.md](DEPLOY.ko.md)를 보세요.
+
 Linux/macOS용 실행 파일 하나로 실행합니다. 원자적 업데이트는 Unix에서
 지원합니다. GNU Linux 빌드는 호환되는 glibc가 필요하고 musl 빌드는 정적
 실행 파일입니다. SQLite·Lua·웹 자산은 모두 내장합니다.

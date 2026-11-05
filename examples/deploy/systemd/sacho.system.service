@@ -1,0 +1,39 @@
+# System-wide service for a dedicated account. Install as
+# /etc/systemd/system/sacho.service (see docs/DEPLOY.md).
+[Unit]
+Description=Sacho status page and health monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sacho
+Group=sacho
+WorkingDirectory=/var/lib/sacho
+ExecStart=/usr/local/bin/sacho serve --config /etc/sacho/sacho.toml
+# The leading "-" means the file is optional.
+EnvironmentFile=-/etc/sacho/secrets.env
+Restart=on-failure
+RestartSec=5
+# Lets notification jobs finish and the database checkpoint on shutdown.
+TimeoutStopSec=25
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sacho
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Scripted checks run under these same limits. Relax one only if a check needs it.
+# Automatic or in-place updates also need the executable's directory to be
+# writable by this account. Install the binary under /var/lib/sacho/bin instead
+# of /usr/local/bin and point ExecStart there if you enable [updates].
+
+[Install]
+WantedBy=multi-user.target

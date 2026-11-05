@@ -1,0 +1,14 @@
+{
+  "name": "Example scenario",
+  "group": "Infrastructure",
+  "kind": "lua",
+  "target_file": "lua-scenario.lua",
+  "interval_seconds": 60,
+  "timeout_seconds": 20,
+  "json_pointer": "/healthy",
+  "comparison": "gte",
+  "threshold": 1,
+  "publish_value": true,
+  "display_pointer": "/display",
+  "display_label": "Version"
+}

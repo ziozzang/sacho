@@ -10,6 +10,8 @@ systems connected by webhooks; they are outside the current product scope.
 
 [한국어](README.ko.md) · [Lua scenarios](docs/LUA.md) · [Deployment](docs/DEPLOYMENT.md)
 
+**Setting up a server?** Start with the [deployment and configuration guide](docs/DEPLOY.md), or the [agent runbook](docs/AGENT-GUIDE.md) for automated setup. Ready-to-edit files are in [examples/deploy](examples/deploy/README.md).
+
 ![Status page](docs/screenshots/status-desktop.png)
 
 ![Admin workspace](docs/screenshots/admin-desktop.png)
