@@ -1,0 +1,11 @@
+# Remote worker. `sacho worker-join --config worker.toml` adds controller_id
+# and [secrets] for you; this is everything you need to fill in beforehand.
+control_url = "https://status.example.com"
+node_id = "edge-west"           # must match the bootstrap key's node
+label = "West edge"
+token_env = "SACHO_WORKER_TOKEN"
+probe_env = []                  # inputs available to checks on this worker
+# Lets the controller's administrators run scripts here. The controller must
+# grant this as well. HTTP, DNS, TCP, ping and similar native checks do not need it.
+allow_scripts = false
+# ca_file = "/etc/sacho/controller-ca.pem"   # only for a private certificate authority

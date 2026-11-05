@@ -2,6 +2,8 @@
 
 [한국어](DEPLOYMENT.ko.md)
 
+For step-by-step installation with tested proxy examples, see [DEPLOY.md](DEPLOY.md).
+
 Use the native single executable on Linux or macOS. Unix is required for atomic
 update activation. Native GNU Linux builds require a compatible glibc; optional
 musl builds are fully static. SQLite/Lua and web assets are always embedded.

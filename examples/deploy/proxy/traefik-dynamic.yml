@@ -1,0 +1,85 @@
+# Traefik file-provider configuration for Sacho and a forward-auth service.
+# Traefik cannot rename a header, so tell Sacho to read the verifier's own header:
+#   [auth]
+#   email_header = "X-Auth-Request-Email"
+# Replace status.example.com, the entry point, the resolver and the addresses.
+http:
+  routers:
+    sacho-public:
+      rule: Host(`status.example.com`)
+      entryPoints: [websecure]
+      tls: {certResolver: letsencrypt}
+      service: sacho
+      middlewares: [sacho-strip]
+    sacho-sign-in:
+      rule: Host(`status.example.com`) && PathPrefix(`/oauth2/`)
+      entryPoints: [websecure]
+      tls: {certResolver: letsencrypt}
+      service: sacho-verifier
+      middlewares: [sacho-strip-identity]
+      priority: 300
+    sacho-admin-page:
+      rule: Host(`status.example.com`) && (Path(`/admin`) || PathPrefix(`/admin/`))
+      entryPoints: [websecure]
+      tls: {certResolver: letsencrypt}
+      service: sacho
+      # sacho-sign-in-page turns a 401 into the sign-in page for browsers.
+      middlewares: [sacho-sign-in-page, sacho-strip-identity, sacho-auth, sacho-strip-cookie]
+      priority: 200
+    sacho-admin-api:
+      rule: Host(`status.example.com`) && (PathPrefix(`/api/admin/`) || Path(`/api/account`))
+      entryPoints: [websecure]
+      tls: {certResolver: letsencrypt}
+      service: sacho
+      middlewares: [sacho-strip-identity, sacho-auth, sacho-strip-cookie]
+      priority: 200
+    # Optional: let signed-in visitors see monitors limited to them. Traefik stops
+    # at any verifier refusal, so this router needs a verifier endpoint that always
+    # answers 200 and adds the email only for a valid session. oauth2-proxy has no
+    # such endpoint. Without one, delete this router: those paths stay public and
+    # visitors see only public monitors.
+    sacho-status-data:
+      rule: Host(`status.example.com`) && (Path(`/api/status`) || Path(`/api/incidents`) || PathPrefix(`/api/history/`))
+      entryPoints: [websecure]
+      tls: {certResolver: letsencrypt}
+      service: sacho
+      middlewares: [sacho-strip-identity, sacho-auth-optional, sacho-strip-cookie]
+      priority: 100
+  middlewares:
+    # Remove any identity supplied by the client.
+    sacho-strip-identity:
+      headers:
+        customRequestHeaders:
+          X-Auth-Request-Email: ""
+    # Sacho uses no cookies: keep your sign-in cookie away from the upstream.
+    sacho-strip-cookie:
+      headers:
+        customRequestHeaders:
+          Cookie: ""
+    sacho-strip:
+      headers:
+        customRequestHeaders:
+          X-Auth-Request-Email: ""
+          Cookie: ""
+    sacho-auth:
+      forwardAuth:
+        address: http://127.0.0.1:4180/oauth2/auth
+        authRequestHeaders: [Cookie]
+        authResponseHeaders: [X-Auth-Request-Email]
+    sacho-auth-optional:
+      forwardAuth:
+        address: http://127.0.0.1:4180/optional-identity
+        authRequestHeaders: [Cookie]
+        authResponseHeaders: [X-Auth-Request-Email]
+    sacho-sign-in-page:
+      errors:
+        status: ["401"]
+        service: sacho-verifier
+        query: /oauth2/sign_in
+  services:
+    sacho:
+      loadBalancer:
+        servers: [{url: "http://127.0.0.1:8080"}]
+    sacho-verifier:
+      loadBalancer:
+        servers: [{url: "http://127.0.0.1:4180"}]

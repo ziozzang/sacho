@@ -1,0 +1,12 @@
+{
+  "name": "Nightly backup",
+  "group": "Jobs",
+  "kind": "push",
+  "target": "push",
+  "interval_seconds": 86400,
+  "timeout_seconds": 10,
+  "publish_value": true,
+  "display_pointer": "/size_gb",
+  "display_label": "Size",
+  "metric_unit": " GB"
+}

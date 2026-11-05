@@ -1,0 +1,72 @@
+# Caddy in front of Sacho and a forward-auth service.
+# The verifier follows oauth2-proxy: GET /oauth2/auth answers 2xx with
+# X-Auth-Request-Email for a valid session and 401 otherwise. Start oauth2-proxy
+# with --set-xauthrequest. Replace status.example.com and the two addresses.
+# Caddy obtains the certificate itself when the name resolves to this machine.
+
+(sacho_upstream) {
+	# Sacho uses no cookies: keep your sign-in cookie away from the upstream.
+	request_header -Cookie
+	reverse_proxy 127.0.0.1:8080
+}
+
+status.example.com {
+	header Strict-Transport-Security "max-age=31536000"
+
+	route {
+		# Remove any identity supplied by the client, on every route.
+		request_header -X-Forwarded-Email
+
+		# Sign-in, callback and sign-out pages of the authentication service.
+		handle /oauth2/* {
+			reverse_proxy 127.0.0.1:4180
+		}
+
+		# Admin page: send anonymous browsers to sign in.
+		@admin_page path /admin /admin/*
+		handle @admin_page {
+			forward_auth 127.0.0.1:4180 {
+				uri /oauth2/auth
+				copy_headers X-Auth-Request-Email>X-Forwarded-Email
+				@denied status 401
+				handle_response @denied {
+					redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+				}
+			}
+			import sacho_upstream
+		}
+
+		# Admin and account APIs: answer 401, never a redirect.
+		@admin_api path /api/admin/* /api/account
+		handle @admin_api {
+			forward_auth 127.0.0.1:4180 {
+				uri /oauth2/auth
+				copy_headers X-Auth-Request-Email>X-Forwarded-Email
+			}
+			import sacho_upstream
+		}
+
+		# Status data: anonymous visitors are welcome, and signed-in visitors
+		# should also see monitors limited to them. If all your monitors are
+		# public, delete this block; the catch-all below then serves these paths.
+		@status_data path /api/status /api/incidents /api/history/*
+		handle @status_data {
+			forward_auth 127.0.0.1:4180 {
+				uri /oauth2/auth
+				copy_headers X-Auth-Request-Email>X-Forwarded-Email
+				@denied status 401
+				handle_response @denied {
+					import sacho_upstream
+				}
+			}
+			import sacho_upstream
+		}
+
+		# Everything else is public: the page, assets, /healthz, subscriptions,
+		# push reports (/api/push/) and workers (/api/workers/). Those last two
+		# carry their own bearer credentials and must not be sent to a sign-in page.
+		handle {
+			import sacho_upstream
+		}
+	}
+}

@@ -1,5 +1,7 @@
 # Sacho · 사초
 
+**서버에 설치하시나요?** [배포·설정 안내서](docs/DEPLOY.ko.md)부터 보세요. 자동 설치는 [에이전트 절차서](docs/AGENT-GUIDE.ko.md), 바로 고쳐 쓸 파일은 [examples/deploy](examples/deploy/README.md)에 있습니다.
+
 v0.1.4에는 검증 가능한 SQLite/PostgreSQL 스냅샷 이전과 PostgreSQL 작업 임대·펜싱
 기반과 원격 모니터링 워커를 추가했습니다. 중앙 저장소는 SQLite이며 다중 중앙 HA는
 미룹니다. [원격 워커](docs/REMOTE-WORKERS.ko.md)는 같은 실행 파일로 운영합니다.

@@ -1,0 +1,52 @@
+# Production controller behind a reverse proxy that verifies identity.
+# Replace every example.com value. See docs/DEPLOY.md for each key.
+# TOML rule: top-level keys must appear before the first [section].
+
+# Keep the upstream private. Only the reverse proxy may reach this address,
+# because Sacho believes whatever identity header arrives here.
+bind = "127.0.0.1:8080"
+database = "/var/lib/sacho/sacho.db"
+
+# Canonical address: used in email links and for Origin checks.
+public_url = "https://status.example.com"
+# Optional extra hostnames that may submit admin changes and subscriptions:
+# public_origins = ["https://monitor.example.com"]
+
+title = "Example Status"
+description = "Service health for Example."
+retention_days = 100            # 90..3650
+max_concurrent_checks = 16      # 1..128
+
+# Names of environment variables that checks may read. Values never go here.
+probe_env = ["API_AUTHORIZATION"]
+
+[auth]
+mode = "auth-proxy"
+# The header your proxy sets to the verified email address.
+email_header = "X-Forwarded-Email"
+# Exact addresses (case-insensitive); no wildcards and no domain matching.
+admins = ["admin@example.com"]
+# Local path or https:// URL of your proxy's sign-out endpoint; omit to hide the link.
+logout_url = "/oauth2/sign_out"
+
+[updates]
+# Leave off until you have decided who may restart this service unattended.
+enabled = false
+interval_seconds = 21600
+
+[smtp]
+host = "smtp.example.com"
+port = 587
+from = "Example Status <status@example.com>"
+username = "status@example.com"
+# Name of the environment variable or vault entry holding the password.
+password_env = "SACHO_SMTP_PASSWORD"
+security = "starttls"           # starttls | tls (port 465) | plain (private relay only)
+
+# Encrypted store for check inputs and the SMTP password. Create it with
+# `sacho secrets init`. Remove this section if you only use the environment file.
+# Both files must be owned by the service account with no group or other access,
+# and the admin console writes to the vault, so keep them in a writable directory.
+[secrets]
+vault = "/var/lib/sacho/secrets/secrets.enc"
+key_file = "/var/lib/sacho/secrets/unlock.key"

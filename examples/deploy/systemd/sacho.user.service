@@ -1,0 +1,24 @@
+# Per-user service, no root needed. Install as
+# ~/.config/systemd/user/sacho.service, then run:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sacho
+#   sudo loginctl enable-linger "$USER"   # keep running after logout
+[Unit]
+Description=Sacho status page and health monitor
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/sacho
+ExecStart=%h/.local/bin/sacho serve --config %h/.config/sacho/sacho.toml
+EnvironmentFile=-%h/.config/sacho/secrets.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

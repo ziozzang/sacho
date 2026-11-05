@@ -1,0 +1,9 @@
+# Smallest useful configuration: one person, on this machine, no sign-in.
+# Sacho refuses to start in no-auth mode on anything but a loopback address,
+# so this file cannot accidentally publish an open admin console.
+bind = "127.0.0.1:8080"
+database = "sacho.db"
+public_url = "http://127.0.0.1:8080"
+
+[auth]
+mode = "no-auth"

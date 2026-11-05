@@ -1,0 +1,23 @@
+# Remote worker on another machine. Workers do not update themselves: replace the
+# binary and restart this service when you upgrade the controller.
+[Unit]
+Description=Sacho remote monitoring worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sacho
+Group=sacho
+WorkingDirectory=/var/lib/sacho
+ExecStart=/usr/local/bin/sacho worker --config /var/lib/sacho/worker.toml
+EnvironmentFile=-/var/lib/sacho/worker.env
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
