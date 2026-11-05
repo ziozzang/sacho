@@ -84,7 +84,7 @@ sudo systemd-run --wait --pipe -q -p User=sacho -p WorkingDirectory=/var/lib/sac
   /usr/local/bin/sacho doctor --config /etc/sacho/sacho.toml
 
 sudo systemctl enable --now sacho
-curl -fsS http://127.0.0.1:8080/healthz    # {"status":"ok","version":"0.2.0"}
+curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:8080/healthz    # {"status":"ok","version":"0.2.0"}
 ```
 
 The example file enables `[smtp]`, which needs a working password reference. Remove
@@ -460,7 +460,7 @@ sudo install -m 0755 /usr/local/bin/sacho /usr/local/bin/sacho.previous
 # Download and verify the new version as in section 1, then:
 sudo install -m 0755 "sacho-$TARGET" /usr/local/bin/sacho
 sudo systemctl restart sacho
-curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:8080/healthz
 ```
 
 **`sacho update`** verifies the signature, checksum and target for you. It needs the service

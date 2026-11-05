@@ -84,7 +84,7 @@ sudo systemd-run --wait --pipe -q -p User=sacho -p WorkingDirectory=/var/lib/sac
   /usr/local/bin/sacho doctor --config /etc/sacho/sacho.toml
 
 sudo systemctl enable --now sacho
-curl -fsS http://127.0.0.1:8080/healthz    # {"status":"ok","version":"0.2.0"}
+curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:8080/healthz    # {"status":"ok","version":"0.2.0"}
 ```
 
 예시 파일은 `[smtp]`를 켜 두었고, 이 항목에는 실제로 찾을 수 있는 비밀번호 이름이 필요합니다.
@@ -452,7 +452,7 @@ sudo install -m 0755 /usr/local/bin/sacho /usr/local/bin/sacho.previous
 # 1절처럼 새 버전을 내려받아 확인한 뒤:
 sudo install -m 0755 "sacho-$TARGET" /usr/local/bin/sacho
 sudo systemctl restart sacho
-curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:8080/healthz
 ```
 
 **`sacho update`**는 서명, 체크섬, 대상 플랫폼을 대신 확인합니다. 데이터베이스 잠금을 잡으므로
