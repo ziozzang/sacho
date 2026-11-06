@@ -1,0 +1,19 @@
+{
+  "name": "Disk space",
+  "group": "Infrastructure",
+  "kind": "python",
+  "target_file": "python-disk.py",
+  "interval_seconds": 300,
+  "timeout_seconds": 20,
+  "value_rules": {
+    "pointer": "/free_percent",
+    "direction": "low",
+    "warning": 20,
+    "critical": 5
+  },
+  "publish_value": true,
+  "display_pointer": "/display",
+  "display_label": "Free",
+  "publish_trend": true,
+  "trend_pointer": "/free_percent"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Example website",
+  "group": "Websites",
+  "kind": "http",
+  "target": "https://www.example.com/",
+  "interval_seconds": 60,
+  "timeout_seconds": 10,
+  "expected_status": 200,
+  "degraded_ms": 2000,
+  "failure_threshold": 3,
+  "recovery_threshold": 2
+}

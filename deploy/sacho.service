@@ -1,0 +1,22 @@
+[Unit]
+Description=Sacho status page and health monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sacho
+Group=sacho
+WorkingDirectory=/var/lib/sacho
+ExecStart=/opt/sacho/sacho serve --config /etc/sacho/sacho.toml
+EnvironmentFile=-/etc/sacho/secrets.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

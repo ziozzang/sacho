@@ -1,0 +1,21 @@
+# Grafana talks to Sacho directly with its ordinary Prometheus data source type.
+# No Prometheus server is involved. See docs/METRICS.md.
+apiVersion: 1
+datasources:
+  - name: Sacho
+    uid: sacho
+    type: prometheus
+    access: proxy
+    url: ${SACHO_URL}                # for example https://status.example.com
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      prometheusVersion: 3.0.0
+      # Should not be shorter than the shortest check interval worth drawing.
+      timeInterval: 30s
+      # Remove the next line and secureJsonData to read only public checks.
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: Bearer ${SACHO_METRICS_TOKEN}

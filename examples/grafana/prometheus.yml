@@ -1,0 +1,12 @@
+# Optional: a Prometheus that scrapes Sacho. Grafana can use it instead of, or next to,
+# the direct data source; the dashboard in this directory works with either one.
+global:
+  scrape_interval: 30s
+scrape_configs:
+  - job_name: sacho
+    scheme: https
+    static_configs:
+      - targets: [status.example.com]
+    # Remove the next two lines to read only public checks.
+    authorization:
+      credentials_file: /etc/prometheus/sacho-metrics-token
