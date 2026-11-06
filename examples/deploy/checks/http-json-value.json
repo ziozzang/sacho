@@ -1,0 +1,12 @@
+{
+  "name": "Sacho version",
+  "group": "Infrastructure",
+  "kind": "http",
+  "target": "http://127.0.0.1:8080/healthz",
+  "interval_seconds": 60,
+  "timeout_seconds": 10,
+  "expected_status": 200,
+  "publish_value": true,
+  "display_pointer": "/version",
+  "display_label": "Version"
+}
